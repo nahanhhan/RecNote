@@ -4,7 +4,7 @@
 
 - [x] 1.1 将 `verification/checks/` 的 `pyproject.toml`、`uv.lock`、`checks/` 包（`__init__.py`、`__main__.py`、`json_assets.py`、`kotlin_comments.py`、`log_redaction.py`、`model_sources.py`、`version_consistency.py`）与 `probe_download_sources.py` 迁入 [`scripts/tests/`](../../../scripts/tests)，同步更新 [`checks/__main__.py`](../../../verification/checks/checks/__main__.py) 文件头路径注释（`REPO_ROOT = parents[3]` 计算逻辑不变，5 项检查与输出格式不变）——验证：`cd scripts/tests && uv run python -m checks` 输出 5 项检查全过、退出码 0
 - [x] 1.2 确认 [`scripts/tests/`](../../../scripts/tests) 为仓库唯一 uv 源且与 unittest 共存互不干扰——验证：全仓 `pyproject.toml`/`uv.lock` 仅存于 `scripts/tests/`；`uv run --project scripts/tests python -m unittest discover -s scripts/tests` 通过（端侧执行一律经 uv；CI 同命令无需改动）
-- [ ] 1.3 本批验收：`cd scripts/tests && uv run python -m checks` 全绿（只读，不修改被检查文件），推送后 CI（`:core:test`、`:app:lintDebug`、`:app:assembleDebug`）通过（工程验证口径）
+- [x] 1.3 本批验收：`cd scripts/tests && uv run python -m checks` 全绿（只读，不修改被检查文件），推送后 CI（`:core:test`、`:app:lintDebug`、`:app:assembleDebug`）通过（工程验证口径）
 
 ## 2. 残余删除（spec-governance）
 
@@ -29,4 +29,4 @@
 
 - [x] 5.1 端侧自检与脚本测试全绿：`cd scripts/tests && uv run python -m checks` 与 `uv run --project scripts/tests python -m unittest discover -s scripts/tests` 均退出码 0——验证：命令输出记录于本 change
 - [x] 5.2 `openspec validate consolidate-spec-driven-governance` 通过，`openspec status --change consolidate-spec-driven-governance` 显示全部工件完成——验证：命令输出无错误
-- [ ] 5.3 推送后 CI（`:core:test`、`:app:lintDebug`、`:app:assembleDebug`）通过，仅表述为工程验证通过（本变更无应用行为变化，无真机人工验收项）——验证：CI 工作流全绿
+- [x] 5.3 推送后 CI（`:core:test`、`:app:lintDebug`、`:app:assembleDebug`）通过，仅表述为工程验证通过（本变更无应用行为变化，无真机人工验收项）——验证：CI 工作流全绿
