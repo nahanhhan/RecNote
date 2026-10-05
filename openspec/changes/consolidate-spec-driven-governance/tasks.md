@@ -27,6 +27,6 @@
 
 ## 5. 全量集成验收
 
-- [ ] 5.1 端侧自检与脚本测试全绿：`cd scripts/tests && uv run python -m checks` 与 `uv run --project scripts/tests python -m unittest discover -s scripts/tests` 均退出码 0——验证：命令输出记录于本 change
-- [ ] 5.2 `openspec validate consolidate-spec-driven-governance` 通过，`openspec status --change consolidate-spec-driven-governance` 显示全部工件完成——验证：命令输出无错误
+- [x] 5.1 端侧自检与脚本测试全绿：`cd scripts/tests && uv run python -m checks` 与 `uv run --project scripts/tests python -m unittest discover -s scripts/tests` 均退出码 0——验证：命令输出记录于本 change
+- [x] 5.2 `openspec validate consolidate-spec-driven-governance` 通过，`openspec status --change consolidate-spec-driven-governance` 显示全部工件完成——验证：命令输出无错误
 - [ ] 5.3 推送后 CI（`:core:test`、`:app:lintDebug`、`:app:assembleDebug`）通过，仅表述为工程验证通过（本变更无应用行为变化，无真机人工验收项）——验证：CI 工作流全绿
