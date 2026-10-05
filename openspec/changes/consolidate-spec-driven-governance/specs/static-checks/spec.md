@@ -27,12 +27,17 @@
 
 ### Requirement: scripts/tests 为唯一 uv 源
 
-静态检查、逻辑校验与日后新增的临时验证脚本 SHALL 全部存放于 `scripts/tests/`；仓库内 uv 项目文件（`pyproject.toml`、`uv.lock`）SHALL 只存在于该目录。网络探测类调研脚本 SHALL 可手动独立运行，且 MUST NOT 注册进默认检查集。
+静态检查、逻辑校验与日后新增的验证脚本 SHALL 全部存放于 `scripts/tests/`；仓库内 uv 项目文件（`pyproject.toml`、`uv.lock`）SHALL 只存在于该目录。新增验证测试 SHALL 在引入它的同一变更内注册进默认检查清单（`uv run python -m checks` 的检查注册表）并纳入逐项输出与退出码语义。网络探测类调研脚本 SHALL 可手动独立运行，且 MUST NOT 注册进默认检查集。
 
 #### Scenario: 新增验证脚本落在唯一源
 
 - **WHEN** 需要新增脚本验证某段逻辑或探测外部依赖
 - **THEN** 脚本放入 `scripts/tests/` 并复用同一 uv 项目，MUST NOT 另立顶层目录或新建第二个 uv 项目
+
+#### Scenario: 新测试同批注册进检查清单
+
+- **WHEN** 某个 change 新增一项验证测试
+- **THEN** 同一变更内该测试注册进 `uv run python -m checks` 的检查清单并出现在输出摘要中，MUST NOT 以未注册的一次性脚本留存
 
 #### Scenario: 调研脚本独立手动运行
 

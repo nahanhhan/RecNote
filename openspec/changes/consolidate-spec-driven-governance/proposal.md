@@ -10,7 +10,7 @@
 - **BREAKING** 删除 [`AGENTS.md`](../../../AGENTS.md)：协作规则不再以仓库文件形式固化（内容已知且冗余，还会长期占用 agent 系统上下文）。
 - **BREAKING** 端侧自检工具迁移：[`verification/checks/`](../../../verification/checks) 全部内容并入 [`scripts/tests/`](../../../scripts/tests)，成为仓库唯一 uv 项目源（`pyproject.toml`/`uv.lock` 只此一份，日后临时验证脚本也落在这里）。自检命令由 `cd verification/checks && uv run python -m checks` 变为 `cd scripts/tests && uv run python -m checks`，单命令、只读、无 Kotlin/Android 环境要求的语义不变。
 - **BREAKING** 删除 [`verification/`](../../../verification) 其余内容：[`DEVICE_CHECKLIST.md`](../../../verification/DEVICE_CHECKLIST.md) 中央清单直接删除——真机人工验收以各 change `tasks.md` 的人工勾选为载体，不另设清单；一次性验证报告（[`BUILD_REPORT.md`](../../../verification/BUILD_REPORT.md)、[`CLOUD_PROVIDERS.md`](../../../verification/CLOUD_PROVIDERS.md)、[`FEATURES_0_1_5.md`](../../../verification/FEATURES_0_1_5.md)、[`ICON_UPDATE.md`](../../../verification/ICON_UPDATE.md)、[`ISSUES_1_8.md`](../../../verification/ISSUES_1_8.md)）、`screenshots/` 与 `checks/probe_result.txt` 随目录整体删除（与 README、git 历史冗余，必要内容为零）。
-- 更新失效引用：[`openspec/config.yaml`](../../../openspec/config.yaml) 的 context 两处（自检命令路径、真机验收依据）、[`README.md`](../../../README.md)（工程结构表与"完整产品约定"链接）、[`docs/openai-tool-calling/README.md`](../../../docs/openai-tool-calling/README.md) 末段、[`.gitignore`](../../../.gitignore) 的 `verification/` 条目。
+- 更新失效引用：[`openspec/config.yaml`](../../../openspec/config.yaml) 的 context 两处失效引用（自检命令路径、真机验收依据）并增补一行夹具同步规矩（开发规范变更同批同步 context、新增验证测试同批注册进检查清单）、[`README.md`](../../../README.md)（工程结构表与"完整产品约定"链接）、[`docs/openai-tool-calling/README.md`](../../../docs/openai-tool-calling/README.md) 末段、[`.gitignore`](../../../.gitignore) 的 `verification/` 条目。
 - 三个进行中 change（`shrink-icon-and-retitle-app`、`add-log-level-and-export`、`use-static-debug-keystore`）的**未完成**任务里对 `verification/` 的路径引用同步改到新位置；已归档 change 作为历史不回改。
 - README 归位：只承载用户文档（使用、构建、供应商），不再充当约定权威入口。
 
@@ -18,8 +18,8 @@
 
 ### New Capabilities
 
-- `spec-governance`: 仓库治理的持久约束——openspec 是唯一 spec-driven 来源，产品/工程约定只由 `openspec/` 承载；MUST NOT 回归平行规范文档（根目录 `IMPLEMENTATION_PLAN.md`/`AGENTS.md` 式文档）、中央人工验收清单或独立验证报告目录；真机人工验收随 change 的 `tasks.md` 勾选执行；README 只承载用户文档。
-- `static-checks`: 端侧提交前自检的持久行为——单命令只读执行、失败以非零退出码列出失败项、不要求 Kotlin/JDK/Android SDK；工具以 `scripts/tests/` 为仓库唯一 uv 源，新增验证脚本 SHALL 落在该处而非另立顶层目录。
+- `spec-governance`: 仓库治理的持久约束——openspec 是唯一 spec-driven 来源，产品/工程约定只由 `openspec/` 承载；MUST NOT 回归平行规范文档（根目录 `IMPLEMENTATION_PLAN.md`/`AGENTS.md` 式文档）、中央人工验收清单或独立验证报告目录；开发规范变更同批同步 `config.yaml` context；真机人工验收随 change 的 `tasks.md` 勾选执行；README 只承载用户文档。
+- `static-checks`: 端侧提交前自检的持久行为——单命令只读执行、失败以非零退出码列出失败项、不要求 Kotlin/JDK/Android SDK；工具以 `scripts/tests/` 为仓库唯一 uv 源，新增验证脚本 SHALL 落在该处而非另立顶层目录，新增验证测试 SHALL 同批注册进 `uv run python -m checks` 的检查清单。
 
 ### Modified Capabilities
 

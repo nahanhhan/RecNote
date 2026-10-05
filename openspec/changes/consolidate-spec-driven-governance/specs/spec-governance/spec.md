@@ -20,6 +20,20 @@
 - **WHEN** 某个 change 需要真机人工验收或产生一次性验证记录
 - **THEN** 验收步骤写入该 change 的 `tasks.md` 由人工勾选、验证结论记录在 change 工件内，MUST NOT 新建中央验收清单或独立报告目录
 
+### Requirement: 开发规范同批同步 config.yaml
+
+新增、修改或废止开发规范的变更 SHALL 在同一变更内同步 `openspec/config.yaml` 的 context（开发规范的唯一归口）；规范 MUST NOT 只存在于 change 工件或会话记忆中，context 中 MUST NOT 残留已废止条目。
+
+#### Scenario: 新规范同批入档
+
+- **WHEN** 某个 change 引入一条新的开发规范
+- **THEN** `config.yaml` context 在该变更内出现对应条目并随其一起提交，不依赖事后补写
+
+#### Scenario: 规范废止同批清理
+
+- **WHEN** 某条开发规范被废止或改写
+- **THEN** `config.yaml` context 在同一变更内更新，不残留失效条目
+
 ### Requirement: README 只承载用户文档
 
 README SHALL 只承载用户可见文档（功能、构建、使用、供应商说明）；产品与工程约定 MUST NOT 以 README 或其链接的独立文档为权威，README 中 MUST NOT 存在"完整产品约定"式权威入口链接。
