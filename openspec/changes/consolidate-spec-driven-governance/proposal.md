@@ -19,7 +19,7 @@
 ### New Capabilities
 
 - `spec-governance`: 仓库治理的持久约束——openspec 是唯一 spec-driven 来源，产品/工程约定只由 `openspec/` 承载；MUST NOT 回归平行规范文档（根目录 `IMPLEMENTATION_PLAN.md`/`AGENTS.md` 式文档）、中央人工验收清单或独立验证报告目录；开发规范变更同批同步 `config.yaml` context；真机人工验收随 change 的 `tasks.md` 勾选执行；README 只承载用户文档。
-- `static-checks`: 端侧提交前自检的持久行为——单命令只读执行、失败以非零退出码列出失败项、不要求 Kotlin/JDK/Android SDK；工具以 `scripts/tests/` 为仓库唯一 uv 源，新增验证脚本 SHALL 落在该处而非另立顶层目录，新增验证测试 SHALL 同批注册进 `uv run python -m checks` 的检查清单。
+- `static-checks`: 端侧提交前自检的持久行为——单命令只读执行、失败以非零退出码列出失败项、不要求 Kotlin/JDK/Android SDK；工具以 `scripts/tests/` 为仓库唯一 uv 源，端侧 Python 验证执行一律经 `uv run`；新增验证脚本 SHALL 落在该处而非另立顶层目录，新增验证测试 SHALL 同批注册进 `uv run python -m checks` 的检查清单。
 
 ### Modified Capabilities
 
