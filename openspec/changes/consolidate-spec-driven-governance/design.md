@@ -23,13 +23,13 @@
 - 不改 CI 工作流（含产物名 `verification-reports`）。
 - 不回改 `openspec/changes/archive/` 与已勾选任务中的历史引用。
 - 不迁移 [`IMPLEMENTATION_PLAN.md`](../../../IMPLEMENTATION_PLAN.md)、[`AGENTS.md`](../../../AGENTS.md) 与 [`verification/`](../../../verification) 报告的任何内容（已确认冗余）。
-- 不统一测试框架：`test_publish_release.py` 保持 unittest，由 CI 系统 Python 执行。
+- 不统一测试框架：`test_publish_release.py` 保持 unittest（本地一律经 uv 执行，CI 侧维持系统 Python 3.12 不变）。
 
 ## Decisions
 
 1. **`checks/` 以原包名整体搬进 `scripts/tests/`，入口不变。** 目标布局：`scripts/tests/{pyproject.toml, uv.lock, checks/, probe_download_sources.py, test_publish_release.py}`。`scripts/tests/checks/__main__.py` 与旧路径深度相同，`parents[3]` 仍指仓库根，只改文件头注释中的路径说明。[`checks/__main__.py`](../../../verification/checks/checks/__main__.py) 的 `CHECKS` 注册表即「uv 检查清单」，新增验证测试同批注册进该表（见 [`static-checks`](specs/static-checks/spec.md)），不另立清单。备选"并入 unittest 作为 `test_checks.py`"被否决：混淆"端侧只读自检"与"CI 单测"两种语义，且输出/退出码契约会变。
 2. **uv 项目元数据保持不变。** `pyproject.toml` 的 `name = "lecture-checks"`、`package = false` 原样迁移，仅 description 补充"验证脚本"字样；`uv.lock` 无需重新生成，避免无谓漂移。备选"改名 `lecture-tests`"被否决：纯装饰性收益，反而引入 lock 漂移风险。
-3. **`test_publish_release.py` 与 uv 项目共处一目录。** unittest discover 只匹配 `test*.py`，不触碰 `checks/` 包；CI 命令零改动。uv 唯一源的含义是"uv 项目文件唯一"，不是"所有验证都走 uv"。
+3. **`test_publish_release.py` 与 uv 项目共处一目录，端侧执行一律经 uv。** unittest discover 只匹配 `test*.py`，不触碰 `checks/` 包；本地跑 unittest 用 `uv run --project scripts/tests python -m unittest discover -s scripts/tests`，任何 Python 验证 MUST 经 `uv run` 执行、MUST NOT 裸跑系统 Python。uv 唯一源 = uv 项目文件唯一 + 端侧执行一律经 uv；CI 的同名 discover 命令保持系统 Python 3.12 不变（Non-Goal）。
 4. **删除取"一次清空"而非"先归档到 docs/"。** `verification/` 报告、`screenshots/`、`probe_result.txt` 与 README、git 历史冗余；挪进 `docs/` 只是给残余换目录名，违背 [`spec-governance`](specs/spec-governance/spec.md)。`DEVICE_CHECKLIST.md` 的职责由各 change `tasks.md` 人工勾选承担，不再设中央清单。
 5. **进行中 change 只改未勾选任务里的路径字符串。** 涉及 `use-static-debug-keystore` 4.1、`shrink-icon-and-retitle-app` 1.5/2.4/3.4/4.1、`add-log-level-and-export` 1.4/3.5/6.2：`verification/checks` 命令改为 `scripts/tests`，`verification/DEVICE_CHECKLIST.md` 的表述改为"按本 change tasks 对应人工验收项勾选"。已勾选任务、proposal/design 叙述与 archive/ 保持原样。备选"全部工件统一改"被否决：重写历史叙述制造虚假记录。
 6. **`config.yaml` context 修两行失效引用，并增补一行夹具同步规矩。** 两行失效引用改法不变（自检命令路径 → `scripts/tests`；真机验收依据 → 各 change 的 `tasks.md` 人工勾选）；另增一行：开发规范变更同批同步本 context、新增验证测试同批注册进 `scripts/tests` 检查清单——按"有规范进 config.yaml、有测试进检查清单"的口径，对应 [`spec-governance`](specs/spec-governance/spec.md) 与 [`static-checks`](specs/static-checks/spec.md)。其余规矩行不动，避免与 spec 形成新的重复。

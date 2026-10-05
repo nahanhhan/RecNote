@@ -11,7 +11,7 @@ from . import json_assets, kotlin_comments, log_redaction, model_sources, versio
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-# 本文件位于 <repo>/verification/checks/checks/__main__.py
+# 本文件位于 <repo>/scripts/tests/checks/__main__.py
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 CheckFn = Callable[[Path], list[str]]

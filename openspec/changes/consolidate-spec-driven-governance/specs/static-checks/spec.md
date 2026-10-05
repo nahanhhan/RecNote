@@ -27,7 +27,7 @@
 
 ### Requirement: scripts/tests 为唯一 uv 源
 
-静态检查、逻辑校验与日后新增的验证脚本 SHALL 全部存放于 `scripts/tests/`；仓库内 uv 项目文件（`pyproject.toml`、`uv.lock`）SHALL 只存在于该目录。新增验证测试 SHALL 在引入它的同一变更内注册进默认检查清单（`uv run python -m checks` 的检查注册表）并纳入逐项输出与退出码语义。网络探测类调研脚本 SHALL 可手动独立运行，且 MUST NOT 注册进默认检查集。
+静态检查、逻辑校验与日后新增的验证脚本 SHALL 全部存放于 `scripts/tests/`；仓库内 uv 项目文件（`pyproject.toml`、`uv.lock`）SHALL 只存在于该目录。端侧 Python 验证的执行 SHALL 一律经 uv（`uv run python ...`），MUST NOT 直接以系统 Python 运行。新增验证测试 SHALL 在引入它的同一变更内注册进默认检查清单（`uv run python -m checks` 的检查注册表）并纳入逐项输出与退出码语义。网络探测类调研脚本 SHALL 可手动独立运行，且 MUST NOT 注册进默认检查集。
 
 #### Scenario: 新增验证脚本落在唯一源
 
@@ -38,6 +38,11 @@
 
 - **WHEN** 某个 change 新增一项验证测试
 - **THEN** 同一变更内该测试注册进 `uv run python -m checks` 的检查清单并出现在输出摘要中，MUST NOT 以未注册的一次性脚本留存
+
+#### Scenario: 验证一律经 uv 执行
+
+- **WHEN** 在端侧执行任何 Python 验证脚本（含 unittest 测试）
+- **THEN** 通过 `uv run python ...` 从 `scripts/tests` 的 uv 项目执行（如 `uv run --project scripts/tests python -m unittest discover -s scripts/tests`），MUST NOT 直接调用系统 Python
 
 #### Scenario: 调研脚本独立手动运行
 
