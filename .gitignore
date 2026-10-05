@@ -16,7 +16,6 @@ captures/
 .DS_Store
 app/src/main/jniLibs/
 app/src/main/java/com/k2fsa/
-verification/local-*.txt
-verification/checks/.venv/
-verification/checks/checks/__pycache__
+scripts/tests/.venv/
+scripts/tests/checks/__pycache__
 *.pyc

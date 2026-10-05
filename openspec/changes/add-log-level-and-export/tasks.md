@@ -5,7 +5,7 @@
 - [x] 1.1 在 [`core/`](core) 增加日志级别模型（None/Info/Debug）与级别过滤纯函数，验证：新增 `:core:test` 单测覆盖三档过滤行为（None 全拒、Info 收关键事件、Debug 全收）
 - [x] 1.2 在 [`core/`](core) 增加凭据脱敏掩码纯函数（`key=`/`token=`/`Bearer …`/`sk-…` 等模式）与日志行格式化（时间戳、级别、来源进程前缀），验证：`:core:test` 单测覆盖 Info 行不出现 API Key 原文、Debug 行保留原文、行格式符合导出要求
 - [x] 1.3 在 [`core/`](core) 增加日志容量截断纯逻辑（超上限保留最近内容），验证：`:core:test` 单测覆盖截断后总量回落且最近条目保留
-- [ ] 1.4 端侧自检：在 [`verification/checks`](verification/checks) 执行 `uv run python -m checks` 通过；CI（`:core:test`、`:app:lintDebug`、`:app:assembleDebug`）通过作为本批验收
+- [ ] 1.4 端侧自检：在 [`scripts/tests`](../../../scripts/tests) 执行 `uv run python -m checks` 通过；CI（`:core:test`、`:app:lintDebug`、`:app:assembleDebug`）通过作为本批验收
 
 ## 2. App 端日志运行时与初始化
 
@@ -38,4 +38,4 @@
 ## 6. 集成核对
 
 - [x] 6.1 `openspec validate add-log-level-and-export` 通过，spec 场景与实现行为逐条对照无遗漏
-- [ ] 6.2 全量 CI（`:core:test`、`:app:lintDebug`、`:app:assembleDebug`）通过（仅表述为工程验证通过，真机验收按 [`verification/DEVICE_CHECKLIST.md`](verification/DEVICE_CHECKLIST.md) 人工执行）
+- [ ] 6.2 全量 CI（`:core:test`、`:app:lintDebug`、`:app:assembleDebug`）通过（仅表述为工程验证通过，真机验收按本 change tasks 对应人工验收项人工勾选执行）

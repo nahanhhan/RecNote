@@ -20,4 +20,4 @@
 
 ## 4. 集成验证
 
-- [ ] 4.1 端到端验证升级链：连续两次 CI 构建的 `app-debug.apk` 签名证书指纹一致，且 `adb install -r` 用新产物覆盖安装旧产物成功、应用数据保留；验证：记录两次指纹比对结果与覆盖安装日志（如 [`verification/DEVICE_CHECKLIST.md`](verification/DEVICE_CHECKLIST.md) 所列真机流程）
+- [ ] 4.1 端到端验证升级链：连续两次 CI 构建的 `app-debug.apk` 签名证书指纹一致，且 `adb install -r` 用新产物覆盖安装旧产物成功、应用数据保留；验证：记录两次指纹比对结果与覆盖安装日志（按本 change tasks 对应人工验收项勾选执行）

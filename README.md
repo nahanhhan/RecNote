@@ -95,11 +95,9 @@ keyPassword=YOUR_LOCAL_PASSWORD
 | `core/` | 时间/文件名规则、分段、分批、笔记校验、接口协议及 JVM 测试 |
 | `docs/openai-tool-calling/` | 工具定义与完整离线往返示例 |
 | `docs/ARCHITECTURE.md` | 数据与任务实现细节 |
-| `verification/` | 已验证结果和真机验收清单 |
+| `scripts/tests/` | 端侧自检（uv 单命令）与脚本测试 |
 | `scripts/` | 固定依赖准备脚本 |
 | `app/src/main/cpp/` | 官方 libbzip2 C 源码及小型 C++ 桥接，用于模型解压 |
-
-完整产品约定见 [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)。
 
 ## 第三方来源
 

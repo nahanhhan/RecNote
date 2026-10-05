@@ -14,16 +14,16 @@
 
 ## 3. 引用修复
 
-- [ ] 3.1 [`openspec/config.yaml`](../../../openspec/config.yaml) context：两行失效引用改写（自检命令路径 `verification/checks` → `scripts/tests`；「真机验收按 verification/DEVICE_CHECKLIST.md 人工执行」→「真机验收由各 change 的 tasks.md 人工勾选执行」），并增补两行规矩硬化（端侧 Python 验证一律经 `uv run`、验证脚本统一收于 `scripts/tests` 唯一 uv 源；夹具同步：开发规范同批同步本 context、新增验证测试同批注册进 `scripts/tests` 检查清单）——验证：diff 仅四行（两行改写 + 两行增补），其余规矩行不动
-- [ ] 3.2 [`README.md`](../../../README.md)：工程结构表 `verification/` 行替换为 `scripts/tests/`（端侧自检与脚本测试），删除「完整产品约定见 IMPLEMENTATION_PLAN.md」一行——验证：`cd scripts/tests && uv run python -m checks` 中版本一致性检查通过（版本行未动）
-- [ ] 3.3 [`docs/openai-tool-calling/README.md`](../../../docs/openai-tool-calling/README.md) 末段对 `verification/` 的引用改为「构建验证以 CI 结果为准，验证记录随 change 工件归档」口径；[`.gitignore`](../../../.gitignore) 删除 `verification/local-*.txt` 条目，`.venv` 与 `__pycache__` 条目改指 `scripts/tests/` ——验证：全仓搜索 `verification/`、`IMPLEMENTATION_PLAN`、`AGENTS.md`，在非历史工件（`openspec/changes/archive/` 与已勾选任务除外）零命中
-- [ ] 3.4 本批验收：`cd scripts/tests && uv run python -m checks` 全绿
+- [x] 3.1 [`openspec/config.yaml`](../../../openspec/config.yaml) context：两行失效引用改写（自检命令路径 `verification/checks` → `scripts/tests`；「真机验收按 verification/DEVICE_CHECKLIST.md 人工执行」→「真机验收由各 change 的 tasks.md 人工勾选执行」），并增补两行规矩硬化（端侧 Python 验证一律经 `uv run`、验证脚本统一收于 `scripts/tests` 唯一 uv 源；夹具同步：开发规范同批同步本 context、新增验证测试同批注册进 `scripts/tests` 检查清单）——验证：diff 仅四行（两行改写 + 两行增补），其余规矩行不动
+- [x] 3.2 [`README.md`](../../../README.md)：工程结构表 `verification/` 行替换为 `scripts/tests/`（端侧自检与脚本测试），删除「完整产品约定见 IMPLEMENTATION_PLAN.md」一行——验证：`cd scripts/tests && uv run python -m checks` 中版本一致性检查通过（版本行未动）
+- [x] 3.3 [`docs/openai-tool-calling/README.md`](../../../docs/openai-tool-calling/README.md) 末段对 `verification/` 的引用改为「构建验证以 CI 结果为准，验证记录随 change 工件归档」口径；[`.gitignore`](../../../.gitignore) 删除 `verification/local-*.txt` 条目，`.venv` 与 `__pycache__` 条目改指 `scripts/tests/` ——验证：全仓搜索 `verification/`、`IMPLEMENTATION_PLAN`、`AGENTS.md`，在非历史工件（`openspec/changes/archive/`、已勾选任务、进行中 change 的 proposal/design 叙述及本 change 自身工件除外）零命中
+- [x] 3.4 本批验收：`cd scripts/tests && uv run python -m checks` 全绿
 
 ## 4. 进行中 change 的引用同步
 
-- [ ] 4.1 [`use-static-debug-keystore`](../use-static-debug-keystore/tasks.md) 4.1：`verification/DEVICE_CHECKLIST.md` 的表述改为「按本 change tasks 对应人工验收项勾选执行」——验证：`openspec validate use-static-debug-keystore` 通过
-- [ ] 4.2 [`shrink-icon-and-retitle-app`](../shrink-icon-and-retitle-app/tasks.md) 1.5/2.4/3.4 的自检命令路径改 `scripts/tests`，4.1 的 DEVICE_CHECKLIST 引用按 4.1 同口径改写——验证：`openspec validate shrink-icon-and-retitle-app` 通过
-- [ ] 4.3 [`add-log-level-and-export`](../add-log-level-and-export/tasks.md) 1.4/3.5 的自检命令路径改 `scripts/tests`，6.2 的真机验收表述按 4.1 同口径改写——验证：`openspec validate add-log-level-and-export` 通过
+- [x] 4.1 [`use-static-debug-keystore`](../use-static-debug-keystore/tasks.md) 4.1：`verification/DEVICE_CHECKLIST.md` 的表述改为「按本 change tasks 对应人工验收项勾选执行」——验证：`openspec validate use-static-debug-keystore` 通过
+- [x] 4.2 [`shrink-icon-and-retitle-app`](../shrink-icon-and-retitle-app/tasks.md) 1.5/2.4/3.4 的自检命令路径改 `scripts/tests`，4.1 的 DEVICE_CHECKLIST 引用按 4.1 同口径改写——验证：`openspec validate shrink-icon-and-retitle-app` 通过
+- [x] 4.3 [`add-log-level-and-export`](../add-log-level-and-export/tasks.md) 1.4/3.5 的自检命令路径改 `scripts/tests`，6.2 的真机验收表述按 4.1 同口径改写——验证：`openspec validate add-log-level-and-export` 通过
 
 ## 5. 全量集成验收
 
