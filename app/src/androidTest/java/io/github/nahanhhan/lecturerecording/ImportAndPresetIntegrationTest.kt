@@ -129,6 +129,37 @@ class ImportAndPresetIntegrationTest {
         Assert.assertFalse(prefs.all.values.any { it == first.key || it == second.key })
         val extra = store.addPreset(); Assert.assertEquals("", store.cloudPreset(extra.id).key)
     }
+    @Test fun deletedPresetsPurgeOwnKeysKeepOthersAndFallBackToFirst() {
+        val store = SettingsStore(app)
+        val slots = store.presets()
+        val first = CloudSettings(CloudProvider.OPENCODE_GO.baseUrl, "kimi-k3", "fixture-key-one", false, CloudProvider.OPENCODE_GO, false, slots[0].id)
+        store.saveCloud(first); store.markCloudTested(first)
+        val second = first.copy(model = "glm-5.2", key = "fixture-key-two", presetId = slots[1].id)
+        store.saveCloud(second); store.markCloudTested(second)
+        store.activatePreset(slots[0].id)
+        store.deletePreset(slots[1].id)
+        Assert.assertEquals(listOf(slots[0]), store.presets())
+        Assert.assertEquals(slots[0].id, store.activePreset().id)
+        Assert.assertEquals(first, store.cloud()); Assert.assertTrue(store.cloudTested)
+        Assert.assertFalse(prefs.all.keys.any { it.startsWith("preset_${slots[1].id}_") })
+        Assert.assertTrue(prefs.all.keys.any { it.startsWith("preset_${slots[0].id}_") })
+        Assert.assertTrue(prefs.getBoolean("preset_${slots[0].id}_tested", false))
+        val extra = store.addPreset()
+        Assert.assertEquals("", store.cloudPreset(extra.id).key)
+        Assert.assertEquals("", store.cloudPreset(extra.id).model)
+        store.activatePreset(extra.id)
+        store.deletePreset(extra.id)
+        Assert.assertEquals(slots[0].id, store.activePreset().id)
+        Assert.assertEquals(first, store.cloud())
+        try {
+            store.deletePreset(slots[0].id)
+            Assert.fail("最后一个预设必须拒绝删除")
+        } catch (error: IllegalArgumentException) {
+            Assert.assertEquals("至少保留一个预设", error.message)
+        }
+        Assert.assertEquals(listOf(slots[0]), store.presets())
+        Assert.assertEquals(first, store.cloud())
+    }
     @Test fun presetsCanBeRenamedAndGoSelectedInSettingsUi() {
         ActivityScenario.launch<MainActivity>(Intent(app, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)).use {
             compose.onNodeWithContentDescription("设置").performClick()

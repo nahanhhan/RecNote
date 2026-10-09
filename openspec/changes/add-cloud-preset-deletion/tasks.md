@@ -3,7 +3,7 @@
 ## 1. 存储层删除接口
 
 - [x] 1.1 在 [`SettingsStore`](../../app/src/main/java/io/github/nahanhhan/lecturerecording/data/SettingsStore.kt) 新增 [`deletePreset(id)`](../../app/src/main/java/io/github/nahanhhan/lecturerecording/data/SettingsStore.kt:88)：校验预设存在（复用「预设不存在」语义）；仅剩一个预设时以「至少保留一个预设」拒绝且不产生改动；从 `cloud_presets` 移除并按 `preset_<id>_` 前缀清除其全部键（含 `_tested`），不动 `cloud_<provider>_` 旧版共享键；删除激活预设时把 `cloud_active_preset` 落到剩余列表首个，删除非激活预设不动激活键。验证：CI 工程验证（编译、测试、lint）通过
-- [ ] 1.2 在 [`ImportAndPresetIntegrationTest`](../../app/src/androidTest/java/io/github/nahanhhan/lecturerecording/ImportAndPresetIntegrationTest.kt) 增加存储层断言：删除激活预设后激活回落到剩余首个；被删预设前缀键清空而其余预设键与 `_tested` 保留；最后一个预设删除被拒绝且列表不变；删除后新增预设为默认空白配置、不继承旧密钥与模型。验证：断言覆盖 [`cloud-presets` spec](specs/cloud-presets/spec.md) 四条 Requirement 的存储层场景，CI 工程验证通过
+- [x] 1.2 在 [`ImportAndPresetIntegrationTest`](../../app/src/androidTest/java/io/github/nahanhhan/lecturerecording/ImportAndPresetIntegrationTest.kt) 增加存储层断言：删除激活预设后激活回落到剩余首个；被删预设前缀键清空而其余预设键与 `_tested` 保留；最后一个预设删除被拒绝且列表不变；删除后新增预设为默认空白配置、不继承旧密钥与模型。验证：断言覆盖 [`cloud-presets` spec](specs/cloud-presets/spec.md) 四条 Requirement 的存储层场景，CI 工程验证通过
 
 ## 2. 设置界面删除入口
 
