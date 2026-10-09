@@ -18,7 +18,7 @@ v1 的 RecNote 只是跑通了录音、转写、整理等组件，交互仍是�
 ### New Capabilities
 
 - `ics-schedule-source`: ICS 日程的导入、订阅、刷新、解析与按时间区间展开出现项（occurrence），及日程来源的本机持久化与失败保留策略。
-- `schedule-auto-recording`: 基于日程的自动开录阈值、启动即判定、日程驱动的标题/课程命名与同日程多次录音的 `-x` 命名，以及相应设置界面与提示。
+- `schedule-auto-recording`: 基于日程的自动开录阈值、启动即判定、日程驱动的标题/课程命名与同日程多次录音的 `-x` 命名，录音开始后直接进入录音详情（自动与手动一致），以及相应设置界面。
 - `recording-stop-triggers`: 录音停止请求的统一入口与触发器扩展约定（当前仅手动），含触发器挂载时机与「本次改为手动」语义的预留。
 
 ### Modified Capabilities
@@ -28,7 +28,7 @@ v1 的 RecNote 只是跑通了录音、转写、整理等组件，交互仍是�
 ## Impact
 
 - 新增 `core` 纯 Kotlin 逻辑（可由 `:core:test` 验证）：`IcsParser`、重复规则展开、`ScheduleResolver`（按当前时刻和阈值选出日程）、`SessionNaming`、`StopTrigger` 抽象。
-- `app` 受影响：`data/Database.kt`（版本 3 迁移，`LessonEntity` 新增字段，新增 `schedule_sources` 表）、`data/SettingsStore.kt`（阈值）、`LectureApp.kt`（`AppGraph` 持有日程仓库）、`MainActivity.kt`（启动即判定、手动开始时跳过标题对话框的条件）、`recording/RecordingService.kt`（接收日程绑定参数；停止指令改经停止触发器入口）、`ui/SettingsScreen.kt` 及新增日程设置面板；新增日程仓库与定时刷新任务。
+- `app` 受影响：`data/Database.kt`（版本 3 迁移，`LessonEntity` 新增字段，新增 `schedule_sources` 表）、`data/SettingsStore.kt`（阈值）、`LectureApp.kt`（`AppGraph` 持有日程仓库）、`MainActivity.kt`（启动即判定、手动开始时跳过标题对话框的条件、开始后导航到录音详情、移除自动开录 Toast）、`recording/RecordingService.kt`（接收日程绑定参数；停止指令改经停止触发器入口）、`ui/SettingsScreen.kt` 及新增日程设置面板；新增日程仓库与定时刷新任务。
 - 新增依赖：`androidx.work:work-runtime-ktx`（订阅链接定时刷新）。无新增权限（`INTERNET` 已声明）；订阅仅限 HTTPS，`usesCleartextTraffic` 保持关闭。
 - 文档：`docs/ARCHITECTURE.md` 补充日程与停止触发器章节、数据库版本 3；`README.md` 因新增用户可见的自动开录行为而更新。`androidTest` 的 `DatabaseMigrationTest` 需覆盖 2→3 迁移。
 - 不在范围内：日程下课/运动传感器/关键词三种停止触发器的实现及关键词 DSL；系统日历（CalendarProvider）读取；云端日历账号授权；后台定时（无需用户进入应用）自动开录。

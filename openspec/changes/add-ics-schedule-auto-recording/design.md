@@ -69,7 +69,7 @@ resolveActive(now, occurrences, window): Occurrence?   // 用于手动开始/命
 
 ### D7：启动即判定的触发位置与幂等
 
-`MainActivity.onCreate` 在 `savedInstanceState == null` 且 Intent 为 `ACTION_MAIN`+`CATEGORY_LAUNCHER` 时执行一次判定；`onNewIntent`（后台应用被启动器再次唤起）同条件再执行。旋转等重建 `savedInstanceState != null` 不触发。判定在 `graph.initialized.await()` 之后（避免与冷启动恢复竞争：恢复会把旧的 `recording` 课堂置为 `interrupted`），用 `lessonOperations` 互斥锁保护「读取已有课堂 → 决定 → 创建」，且在锁内再次检查 `recording.lessonId == null && importing.lessonId == null`。命中后构造与手动开始相同的 `START` Intent，额外携带 `title`、`course`、`schedule_key`、`schedule_title`，经现有 `beginRecording` 走权限流程，因此无需新增服务路径。首页同时显示「已根据日程《X》自动开始录音」的一次性提示（Toast + 当前录音卡片文案）。
+`MainActivity.onCreate` 在 `savedInstanceState == null` 且 Intent 为 `ACTION_MAIN`+`CATEGORY_LAUNCHER` 时执行一次判定；`onNewIntent`（后台应用被启动器再次唤起）同条件再执行。旋转等重建 `savedInstanceState != null` 不触发。判定在 `graph.initialized.await()` 之后（避免与冷启动恢复竞争：恢复会把旧的 `recording` 课堂置为 `interrupted`），用 `lessonOperations` 互斥锁保护「读取已有课堂 → 决定 → 创建」，且在锁内再次检查 `recording.lessonId == null && importing.lessonId == null`。命中后构造与手动开始相同的 `START` Intent，额外携带 `title`、`course`、`schedule_key`、`schedule_title`，经现有 `beginRecording` 走权限流程，因此无需新增服务路径。录音开始后界面直接进入该课堂的录音详情页，自动与手动开始共用同一导航；不再显示自动开录 Toast 提示。
 
 不在判定里考虑用户「刚手动停止」的情况：由「该出现项已有课堂则不再自动开录」天然避免停止后重进应用又自动开录；此后再录由用户手动点击，并按 D5/D6 自动命名。该假设已写入 spec 的「此前没有关联课堂」条件。
 
@@ -98,7 +98,7 @@ class StopTriggerRegistry(...)   // 管理挂载、switchToManual()、isManualOn
 - [Windows/自定义 `TZID` 无法映射] → 回落手机时区并在预览中如实展示出现项时刻，用户可据此发现偏差；常见 Windows 名内置映射。
 - [不支持的 RRULE 导致漏掉后续课] → 日志告警，预览可见；后续按真实课表样本扩充支持集。
 - [WorkManager 在厂商省电策略下不准时] → 启动时机会性刷新兜底；自动开录只依赖已缓存数据。
-- [自动开录的误触发/不想录]：用户在窗口内进入应用即开录（可能是随手打开）→ 开录有明确提示，且通知栏与页面可随时停止；阈值可调。此行为由 spec 明确，属有意设计。
+- [自动开录的误触发/不想录]：用户在窗口内进入应用即开录（可能是随手打开）→ 开录后直接进入录音详情页，用户可立即察觉，且通知栏与页面可随时停止；阈值可调。此行为由 spec 明确，属有意设计。
 - [同一日程第一次录音被删后，该出现项视为「无关联课堂」，再次进入应用会再次自动开录] → 符合「无关联课堂才自动开录」的语义，视为可接受。
 - [后台冷启动被系统杀死后用户从桌面再进] → 冷启动恢复会把原录音标为 `interrupted` 并关联同一 `scheduleKey`，因此不会自动再开录；用户可手动继续或新开，新开按 `-x` 命名。
 - [`-x` 编号对用户改名的课堂的容错] → 以现有标题集合避让，宁可跳号也不重名。

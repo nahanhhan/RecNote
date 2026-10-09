@@ -36,10 +36,11 @@
 
 ## 6. app：自动开录、命名与停止入口收口
 
-- [x] 6.1 `MainActivity` 增加启动判定：`onCreate`（`savedInstanceState == null` 且 `MAIN/LAUNCHER`）与 `onNewIntent` 同条件，等待 `graph.initialized` 后在 `lessonOperations` 内检查无录音/导入，调用 `resolveAutoStart`，命中则经 `beginRecording` 发送带 `title/course/schedule_key/schedule_title` 的 `START`，并显示一次性提示；旋转重建不触发；`:app:assembleDebug` 通过
+- [x] 6.1 `MainActivity` 增加启动判定：`onCreate`（`savedInstanceState == null` 且 `MAIN/LAUNCHER`）与 `onNewIntent` 同条件，等待 `graph.initialized` 后在 `lessonOperations` 内检查无录音/导入，调用 `resolveAutoStart`，命中则经 `beginRecording` 发送带 `title/course/schedule_key/schedule_title` 的 `START`；旋转重建不触发；`:app:assembleDebug` 通过
 - [x] 6.2 把首页「开始课堂录音」改为先调用 `resolveActive`：命中则跳过对话框，首次用日程名，已有关联课堂则用 `SessionNaming` 生成 `-x`；未命中保留 v1 对话框；`:app:assembleDebug` 通过
 - [x] 6.3 `RecordingService.runRecording` 接收并写入 `scheduleKey/scheduleTitle`；服务内增加 `StopTriggerRegistry`，把 `STOP` action 与页面停止都改经 `requestStop(StopReason.MANUAL)`，仅注册 `ManualStopTrigger`，未注册自动触发器时不调度 tick；确认停止后的收尾状态与 v1 一致；`:app:assembleDebug` 与 `:app:lintDebug` 通过
-- [x] 6.4 为 `Notifications`/首页文案补自动开录提示字符串，确认日志中不记录订阅链接中的凭据片段（查询串脱敏）；运行 `uv run python -m checks`（含 `log_redaction`）通过
+- [x] 6.4 确认日志中不记录订阅链接中的凭据片段（查询串脱敏）；运行 `uv run python -m checks`（含 `log_redaction`）通过
+- [ ] 6.5 统一「开始录音后进入录音详情」：自动开录、日程内手动开始与对话框手动新建三条路径在录音开始后均直接导航到该课堂录音详情页，不停留在首页；删除自动开录 Toast 提示及其字符串；`:app:assembleDebug` 与 `:app:lintDebug` 通过，`uv run python -m checks` 通过
 
 ## 7. 文档与真机验收
 
@@ -47,3 +48,4 @@
 - [x] 7.2 更新 `README.md` 说明自动开录行为、阈值滑块、日程导入与订阅的用法；`uv run python -m checks` 通过
 - [x] 7.3 运行 `openspec validate add-ics-schedule-auto-recording --strict` 通过
 - [x] 7.4 真机验收（人工勾选）：导入真实教务系统 `.ics` 并核对预览时刻；订阅 HTTPS 链接并离线进入仍可判定；课前 2 分钟、迟到 5 分钟（放宽到 -10）、区间外三种进入场景；应用在后台时点桌面图标再次进入也会判定（依赖 `singleTop` 的 `onNewIntent` 在真机上实际送达，若不送达需改用其他进入检测并更新设计）；中断后再录得到「课名-1」「课名-2」且无标题对话框；旋转不重复触发；通知栏停止与页面停止收尾正常
+- [ ] 7.5 真机验收（人工勾选）：自动开录与手动开始（含日程命名与对话框流程）后均直接进入录音详情页，且不再出现自动开录 Toast
