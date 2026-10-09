@@ -25,6 +25,7 @@ import kotlinx.coroutines.*
     var renaming by remember { mutableStateOf(false) }
     var presetName by remember { mutableStateOf("") }
     var renameError by remember { mutableStateOf("") }
+    var deleting by remember { mutableStateOf(false) }
     val drafts = remember { mutableMapOf<CloudProvider, CloudSettings>() }
     var providerMenu by remember { mutableStateOf(false) }
     var modelChoices by remember { mutableStateOf<List<CloudModel>?>(null) }
@@ -67,6 +68,9 @@ import kotlinx.coroutines.*
         TextButton(enabled = !busy, modifier = Modifier.testTag("rename-preset"), onClick = {
             presetName = presets.first { it.id == draft.presetId }.name; renameError = ""; renaming = true
         }) { Text("重命名预设") }
+        TextButton(enabled = !busy && presets.size > 1, modifier = Modifier.testTag("delete-preset"), onClick = {
+            deleting = true
+        }) { Text("删除预设") }
     }
     if (renaming) AlertDialog(onDismissRequest = { renaming = false }, title = { Text("重命名预设") }, text = {
         Column {
@@ -77,6 +81,18 @@ import kotlinx.coroutines.*
         try { graph.settings.renamePreset(draft.presetId, presetName); presets = graph.settings.presets(); renaming = false }
         catch (error: Exception) { renameError = error.message.orEmpty() }
     }) { Text("确定") } }, dismissButton = { TextButton(onClick = { renaming = false }) { Text("取消") } })
+    if (deleting) AlertDialog(onDismissRequest = { deleting = false }, title = { Text("删除预设") }, text = {
+        Text("确定删除预设「${presets.firstOrNull { it.id == draft.presetId }?.name.orEmpty()}」？该预设保存的云端配置将一并清除。")
+    }, confirmButton = { TextButton(onClick = {
+        try {
+            val removed = draft.presetId
+            graph.settings.deletePreset(removed)
+            presetDrafts.remove(removed)
+            presets = graph.settings.presets(); draft = graph.settings.cloud()
+            drafts.clear(); checks = emptyList(); message = "已删除预设"
+        } catch (error: Exception) { message = error.message.orEmpty() }
+        deleting = false
+    }) { Text("删除") } }, dismissButton = { TextButton(onClick = { deleting = false }) { Text("取消") } })
     Box {
         OutlinedButton(enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("cloud-provider"),
             onClick = { providerMenu = true }) { Text("模型供应商：${draft.provider.label} ▾") }
