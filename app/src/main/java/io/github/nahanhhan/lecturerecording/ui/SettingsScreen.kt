@@ -84,6 +84,8 @@ import java.time.format.DateTimeFormatter
             }
         }
         HorizontalDivider()
+        SchedulePanel(activity, graph)
+        HorizontalDivider()
         CloudSettingsPanel(activity, graph)
         HorizontalDivider()
         Text("课程术语", style = MaterialTheme.typography.titleLarge)

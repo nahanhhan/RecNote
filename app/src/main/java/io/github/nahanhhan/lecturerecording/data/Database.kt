@@ -8,7 +8,16 @@ data class LessonEntity(@PrimaryKey val id: String, val title: String, val cours
     val createdAt: Long, val status: String = "recording", val samples: Long = 0,
     val revision: Int = 1, val photoSequence: Long = 0, val modelId: String = "aed", val error: String = "",
     @ColumnInfo(defaultValue = "'microphone'") val sourceType: String = "microphone",
-    @ColumnInfo(defaultValue = "0") val importReady: Boolean = false)
+    @ColumnInfo(defaultValue = "0") val importReady: Boolean = false,
+    /** 关联的日程出现项键；无日程的课堂为空串。 */
+    @ColumnInfo(defaultValue = "''") val scheduleKey: String = "",
+    /** 关联日程的名称，作为 `-x` 命名前缀，不随用户改标题变化。 */
+    @ColumnInfo(defaultValue = "''") val scheduleTitle: String = "")
+
+/** 日程来源：`kind` 为 `file` 或 `url`；ICS 原文保存在 `files/schedules/<id>.ics`。 */
+@Entity(tableName = "schedule_sources")
+data class ScheduleSourceEntity(@PrimaryKey val id: String, val kind: String, val name: String, val url: String = "",
+    val lastSuccessAt: Long = 0, val lastError: String = "", val etag: String = "", val createdAt: Long = 0)
 
 @Entity(tableName = "chunks", indices = [Index("lessonId")])
 data class ChunkEntity(@PrimaryKey val id: String, val lessonId: String, val path: String,
@@ -44,6 +53,13 @@ interface LectureDao {
     @Query("SELECT id FROM lessons WHERE status IN ('recording','paused','processing','importing','transcribing') UNION SELECT lessonId FROM jobs WHERE status='running'")
     fun observeBusyLessonIds(): Flow<List<String>>
     @Query("SELECT COUNT(*) FROM jobs WHERE lessonId IN (:ids) AND status='running'") suspend fun runningJobs(ids: List<String>): Int
+    @Query("SELECT title FROM lessons WHERE scheduleKey=:key") suspend fun titlesForSchedule(key: String): List<String>
+    @Query("SELECT DISTINCT scheduleKey FROM lessons WHERE scheduleKey<>''") suspend fun scheduleKeys(): List<String>
+    @Query("SELECT * FROM schedule_sources ORDER BY createdAt") fun observeScheduleSources(): Flow<List<ScheduleSourceEntity>>
+    @Query("SELECT * FROM schedule_sources ORDER BY createdAt") suspend fun scheduleSources(): List<ScheduleSourceEntity>
+    @Query("SELECT * FROM schedule_sources WHERE id=:id") suspend fun scheduleSource(id: String): ScheduleSourceEntity?
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun putScheduleSource(source: ScheduleSourceEntity)
+    @Query("DELETE FROM schedule_sources WHERE id=:id") suspend fun deleteScheduleSource(id: String)
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun putLesson(lesson: LessonEntity)
     @Query("UPDATE lessons SET samples=:samples WHERE id=:id") suspend fun setSamples(id: String, samples: Long)
     @Query("UPDATE lessons SET status=:status,error=:error WHERE id=:id") suspend fun setStatus(id: String, status: String, error: String = "")
@@ -94,7 +110,7 @@ interface LectureDao {
 }
 
 @Database(entities = [LessonEntity::class, ChunkEntity::class, SegmentEntity::class, PhotoEntity::class,
-    JobEntity::class, NoteBatchEntity::class, EditedNoteEntity::class], version = 2, exportSchema = false)
+    JobEntity::class, NoteBatchEntity::class, EditedNoteEntity::class, ScheduleSourceEntity::class], version = 3, exportSchema = false)
 abstract class LectureDatabase : RoomDatabase() {
     abstract fun dao(): LectureDao
     companion object {
@@ -102,6 +118,15 @@ abstract class LectureDatabase : RoomDatabase() {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE lessons ADD COLUMN sourceType TEXT NOT NULL DEFAULT 'microphone'")
                 db.execSQL("ALTER TABLE lessons ADD COLUMN importReady INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+        val MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE lessons ADD COLUMN scheduleKey TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE lessons ADD COLUMN scheduleTitle TEXT NOT NULL DEFAULT ''")
+                db.execSQL("CREATE TABLE IF NOT EXISTS schedule_sources (id TEXT NOT NULL, kind TEXT NOT NULL, name TEXT NOT NULL, " +
+                    "url TEXT NOT NULL, lastSuccessAt INTEGER NOT NULL, lastError TEXT NOT NULL, etag TEXT NOT NULL, " +
+                    "createdAt INTEGER NOT NULL, PRIMARY KEY(id))")
             }
         }
     }

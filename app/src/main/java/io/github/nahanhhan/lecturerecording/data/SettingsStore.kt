@@ -5,6 +5,7 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import io.github.nahanhhan.lecturerecording.models.DownloadSource
+import io.github.nahanhhan.lecture.core.AutoStartWindow
 import io.github.nahanhhan.lecture.core.CloudEndpoint
 import io.github.nahanhhan.lecture.core.CloudProvider
 import io.github.nahanhhan.lecture.core.protocolJson
@@ -38,6 +39,13 @@ class SettingsStore(context: Context) {
     var glossary: String
         get() = preferences.getString("glossary", "")!!
         set(value) { preferences.edit().putString("glossary", value).apply() }
+
+    /** 自动开录区间，键 `auto_start_lower`/`auto_start_upper`（分钟，正为早于开始、负为晚于开始）；缺失或非法回落默认 -3..+3。 */
+    var autoStartWindow: AutoStartWindow
+        get() = AutoStartWindow.fromStorage(
+            if (preferences.contains("auto_start_lower")) preferences.getInt("auto_start_lower", 0) else null,
+            if (preferences.contains("auto_start_upper")) preferences.getInt("auto_start_upper", 0) else null)
+        set(value) { preferences.edit().putInt("auto_start_lower", value.lowerMin).putInt("auto_start_upper", value.upperMin).apply() }
     private fun secretKey(): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         return (store.getKey("lecture_api", null) as? SecretKey) ?: KeyGenerator.getInstance(

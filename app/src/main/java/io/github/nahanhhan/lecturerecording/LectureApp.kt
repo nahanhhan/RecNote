@@ -9,6 +9,8 @@ import kotlinx.coroutines.sync.Mutex
 import java.io.File
 import io.github.nahanhhan.lecturerecording.logging.AppLog
 import io.github.nahanhhan.lecturerecording.recording.WavFile
+import io.github.nahanhhan.lecturerecording.schedule.ScheduleRefreshWorker
+import io.github.nahanhhan.lecturerecording.schedule.ScheduleRepository
 
 data class RecordingState(val lessonId: String? = null, val status: String = "idle", val samples: Long = 0,
     val preview: String = "", val queueSize: Int = 0, val warning: String = "")
@@ -19,8 +21,9 @@ data class ImportState(val lessonId: String? = null, val status: String = "idle"
 class AppGraph(val app: Application) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val database = Room.databaseBuilder(app, LectureDatabase::class.java, "lectures.db")
-        .addMigrations(LectureDatabase.MIGRATION_1_2).build()
+        .addMigrations(LectureDatabase.MIGRATION_1_2, LectureDatabase.MIGRATION_2_3).build()
     val dao = database.dao()
+    val schedules = ScheduleRepository(app, dao)
     val settings = SettingsStore(app)
     val recording = MutableStateFlow(RecordingState())
     val cloudLessonId = MutableStateFlow<String?>(null)
@@ -52,6 +55,9 @@ class LectureApp : Application() {
         // Both processes log to files/log/<process>.log.
         AppLog.init(this)
         // ASR process owns only its recognizer; it must not run main-process recovery.
-        if (!getProcessName().endsWith(":asr")) graph = AppGraph(this)
+        if (!getProcessName().endsWith(":asr")) {
+            graph = AppGraph(this)
+            ScheduleRefreshWorker.schedule(this)
+        }
     }
 }

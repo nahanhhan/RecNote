@@ -103,6 +103,7 @@ class StopTriggerRegistry(...)   // 管理挂载、switchToManual()、isManualOn
 - [后台冷启动被系统杀死后用户从桌面再进] → 冷启动恢复会把原录音标为 `interrupted` 并关联同一 `scheduleKey`，因此不会自动再开录；用户可手动继续或新开，新开按 `-x` 命名。
 - [`-x` 编号对用户改名的课堂的容错] → 以现有标题集合避让，宁可跳号也不重名。
 - [数据库迁移失败风险] → 仅 `ADD COLUMN` 与新表，沿用 v1→v2 的非破坏性做法，`DatabaseMigrationTest` 覆盖 2→3。
+- [应用已在后台时点桌面图标，系统可能只把任务调到前台而不送达新 Intent，导致 `onNewIntent` 不触发] → 将 `MainActivity` 设为 `singleTop` 以便送达时处理；是否送达只能真机确认（任务 7.4），若不送达需另行设计进入检测（如前台回到应用的生命周期事件）并回改本设计与 spec。
 
 ## Migration Plan
 

@@ -31,11 +31,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import io.github.nahanhhan.lecturerecording.logging.AppLog
 import io.github.nahanhhan.lecturerecording.recording.RecordingService
+import io.github.nahanhhan.lecturerecording.schedule.ScheduleRefreshWorker
+import io.github.nahanhhan.lecturerecording.schedule.activeScheduledStart
+import io.github.nahanhhan.lecturerecording.schedule.autoStartCandidate
+import io.github.nahanhhan.lecturerecording.schedule.scheduledRecordingIntent
 import io.github.nahanhhan.lecturerecording.ui.*
 import io.github.nahanhhan.lecture.core.formatTime
 import io.github.nahanhhan.lecturerecording.importing.AudioImportService
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -66,6 +72,29 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         AppLog.i("MainActivity", "页面创建")
         setContent { LectureTheme { LectureRoot(this, graph) } }
+        // 仅全新创建的页面实例判定；旋转等配置变化重建时 savedInstanceState 非空，不会重复触发。
+        if (savedInstanceState == null) maybeAutoStart(intent)
+    }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        maybeAutoStart(intent)
+    }
+    /** 从桌面启动器进入（MAIN + LAUNCHER）时，按本机日程判定是否直接开录；通知等其他入口不触发。 */
+    private fun maybeAutoStart(entry: Intent?) {
+        val enteredWith = entry ?: return
+        if (enteredWith.action != Intent.ACTION_MAIN || enteredWith.categories?.contains(Intent.CATEGORY_LAUNCHER) != true) return
+        lifecycleScope.launch {
+            val start = runCatching { graph.autoStartCandidate(System.currentTimeMillis()) }.getOrNull() ?: return@launch
+            AppLog.i("MainActivity", "按日程自动开始录音 title=${start.title}")
+            Toast.makeText(this@MainActivity, "已根据日程「${start.title}」自动开始录音", Toast.LENGTH_LONG).show()
+            beginRecording(scheduledRecordingIntent(this@MainActivity, start))
+        }
+    }
+    override fun onStart() {
+        super.onStart()
+        // 机会性补刷过期订阅；自动开录判定只读本机缓存，不等待这次刷新。
+        graph.scope.launch { graph.schedules.refreshStale(ScheduleRefreshWorker.STALE_MS) }
     }
 }
 
@@ -76,6 +105,7 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable private fun LectureRoot(activity: MainActivity, graph: AppGraph) {
+    val scope = rememberCoroutineScope()
     var page by rememberSaveable { mutableStateOf("home") }
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
     var newRecording by remember { mutableStateOf(false) }
@@ -137,7 +167,12 @@ class MainActivity : ComponentActivity() {
                                 Text("录下讲解，拍下板书。课后整理成可回听的图文笔记。", style = MaterialTheme.typography.bodyLarge)
                                 Button(enabled = importing.lessonId == null, onClick = {
                                     if (recording.lessonId != null) { selectedId = recording.lessonId; page = "detail" }
-                                    else newRecording = true
+                                    else scope.launch {
+                                        // 正处于某个日程内则直接以日程名（或「日程名-x」）开录，否则沿用新建课堂对话框。
+                                        val start = runCatching { graph.activeScheduledStart(System.currentTimeMillis()) }.getOrNull()
+                                        if (start != null) activity.beginRecording(scheduledRecordingIntent(activity, start))
+                                        else newRecording = true
+                                    }
                                 }) { Icon(Icons.Default.Mic, null); Spacer(Modifier.width(8.dp)); Text(if (recording.lessonId != null) "回到当前录音" else "开始课堂录音") }
                                 OutlinedButton(enabled = recording.lessonId == null && importing.lessonId == null,
                                     onClick = { audioPicker.launch(arrayOf("audio/*", "application/octet-stream")) }) {

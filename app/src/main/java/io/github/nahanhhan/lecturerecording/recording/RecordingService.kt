@@ -29,6 +29,11 @@ class RecordingService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val paused = AtomicBoolean(false)
     private val stopping = AtomicBoolean(false)
+    // 所有停止请求（通知栏、页面、未来的自动触发器）的统一入口；当前只注册手动触发器。
+    private val stopTriggers = StopTriggerRegistry { reason ->
+        stopping.set(true)
+        AppLog.i("RecordingService", "停止录音 原因=$reason")
+    }
     private var running = false
     private var audio: AudioRecord? = null
     private var wake: PowerManager.WakeLock? = null
@@ -43,6 +48,7 @@ class RecordingService : Service() {
     override fun onCreate() {
         super.onCreate()
         AppLog.i("RecordingService", "服务创建")
+        stopTriggers.register(ManualStopTrigger())
         wake = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$packageName:recording").apply { setReferenceCounted(false) }
     }
     override fun onBind(intent: Intent?) = null
@@ -50,7 +56,7 @@ class RecordingService : Service() {
         when (intent?.action) {
             PAUSE -> { paused.set(true); AppLog.i("RecordingService", "暂停录音") }
             RESUME -> { paused.set(false); AppLog.i("RecordingService", "继续录音") }
-            STOP -> { stopping.set(true); AppLog.i("RecordingService", "收到停止指令") }
+            STOP -> { AppLog.i("RecordingService", "收到停止指令"); stopTriggers.requestStop(StopReason.MANUAL) }
             START, DRAIN -> {
                 if (running) return START_NOT_STICKY
                 AppLog.i("RecordingService", if (intent.action == DRAIN) "恢复未完成转写" else "开始录音")
@@ -81,7 +87,8 @@ class RecordingService : Service() {
             check(graph.importing.value.lessonId == null) { "请等待音频导入和转写结束" }
             val value = if (existingId != null) requireNotNull(graph.dao.lesson(existingId)) { "录音记录已删除" } else LessonEntity(
                 UUID.randomUUID().toString(), intent.getStringExtra("title")?.ifBlank { "课堂录音" } ?: "课堂录音",
-                intent.getStringExtra("course") ?: "", System.currentTimeMillis(), modelId = graph.settings.modelId)
+                intent.getStringExtra("course") ?: "", System.currentTimeMillis(), modelId = graph.settings.modelId,
+                scheduleKey = intent.getStringExtra(EXTRA_SCHEDULE_KEY) ?: "", scheduleTitle = intent.getStringExtra(EXTRA_SCHEDULE_TITLE) ?: "")
             check(value.sourceType != "import") { "导入音频不能追加麦克风录音，请使用音频导入流程继续转写" }
             lessonId = value.id
             graph.dao.putLesson(value.copy(status = if (intent.action == DRAIN) "processing" else "recording", error = ""))
@@ -163,6 +170,14 @@ class RecordingService : Service() {
             if (modelReady) enqueue(Work(id, file.path, window.final))
             else if (!window.final) file.delete()
         }
+        val scheduled = if (lesson.scheduleKey.isNotEmpty() && intent.hasExtra(EXTRA_SCHEDULE_END_MS)) Occurrence(
+            "", "", lesson.scheduleKey, lesson.scheduleTitle, intent.getLongExtra(EXTRA_SCHEDULE_START_MS, 0L),
+            intent.getLongExtra(EXTRA_SCHEDULE_END_MS, 0L), false) else null
+        stopTriggers.beginSession(SessionContext(lesson.id, scheduled, System.currentTimeMillis()))
+        // 没有注册自动触发器时不调度，当前版本恒为 null。
+        val ticker = if (stopTriggers.hasAutomatic) launch {
+            while (isActive) { stopTriggers.tick(System.currentTimeMillis()); delay(1000) }
+        } else null
         try {
             if (intent.action != DRAIN) {
                 check(ContextCompat.checkSelfPermission(this@RecordingService, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) { "麦克风权限未授予" }
@@ -230,7 +245,7 @@ class RecordingService : Service() {
             queue.close(); consumer.join()
             graph.dao.setStatus(lesson.id, "completed")
             AppLog.i("RecordingService", "全部转写完成 lesson=${lesson.id}")
-        } finally { renewal.cancel(); queue.close(); consumer.cancel() }
+        } finally { ticker?.cancel(); stopTriggers.endSession(); renewal.cancel(); queue.close(); consumer.cancel() }
     }
     private fun releaseWake() { if (wake?.isHeld == true) wake?.release() }
     private fun foreground(text: String) {
@@ -254,5 +269,7 @@ class RecordingService : Service() {
     companion object {
         const val START = "record.start"; const val PAUSE = "record.pause"; const val RESUME = "record.resume"
         const val STOP = "record.stop"; const val DRAIN = "record.drain"
+        const val EXTRA_SCHEDULE_KEY = "schedule_key"; const val EXTRA_SCHEDULE_TITLE = "schedule_title"
+        const val EXTRA_SCHEDULE_START_MS = "schedule_start_ms"; const val EXTRA_SCHEDULE_END_MS = "schedule_end_ms"
     }
 }

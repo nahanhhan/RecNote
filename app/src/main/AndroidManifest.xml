@@ -14,7 +14,7 @@
     <application android:name=".LectureApp" android:allowBackup="false" android:label="RecNote"
         android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:theme="@style/Theme.Lecture" android:usesCleartextTraffic="false"
         android:supportsRtl="true" android:fullBackupContent="false" android:dataExtractionRules="@xml/data_extraction_rules">
-        <activity android:name=".MainActivity" android:exported="true">
+        <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity>
         <service android:name=".recording.RecordingService" android:exported="false" android:foregroundServiceType="microphone" android:stopWithTask="false" />
