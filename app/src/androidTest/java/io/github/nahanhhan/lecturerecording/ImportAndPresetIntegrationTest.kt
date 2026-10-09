@@ -176,6 +176,24 @@ class ImportAndPresetIntegrationTest {
             Assert.assertEquals(CloudProvider.OPENCODE_GO, graph.settings.cloud().provider)
         }
     }
+    @Test fun presetsGoDeletedAfterConfirmAndCancelOrLastOneChangesNothing() {
+        ActivityScenario.launch<MainActivity>(Intent(app, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)).use {
+            compose.onNodeWithContentDescription("设置").performClick()
+            compose.onNodeWithTag("cloud-preset").performScrollTo().performClick()
+            compose.onNodeWithText("预设二").performClick()
+            compose.onNodeWithTag("delete-preset").performScrollTo().performClick()
+            compose.onNodeWithText("确定删除预设「预设二」？该预设保存的云端配置将一并清除。").assertExists()
+            compose.onNodeWithText("取消").performClick()
+            Assert.assertEquals(listOf("预设一", "预设二"), graph.settings.presets().map { it.name })
+            Assert.assertEquals("预设二", graph.settings.activePreset().name)
+            compose.onNodeWithTag("delete-preset").performScrollTo().performClick()
+            compose.onNodeWithText("删除").performClick()
+            Assert.assertEquals(listOf("预设一"), graph.settings.presets().map { it.name })
+            Assert.assertEquals("预设一", graph.settings.activePreset().name)
+            compose.onNodeWithText("配置预设：预设一 ▾").assertExists()
+            compose.onNodeWithTag("delete-preset").assertIsNotEnabled()
+        }
+    }
     @Test fun importedRecordingUiOffersTextWorkflowWithoutCameraOrMicResume(): Unit = runBlocking {
         val id = "import-ui"
         graph.dao.putLesson(LessonEntity(id, "Imported Recording", "", 0, "completed", samples = 16000, sourceType = "import", importReady = true))

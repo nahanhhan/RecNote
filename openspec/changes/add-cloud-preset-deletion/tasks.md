@@ -8,7 +8,7 @@
 ## 2. 设置界面删除入口
 
 - [x] 2.1 在 [`CloudSettingsPanel`](../../app/src/main/java/io/github/nahanhhan/lecturerecording/ui/CloudSettingsPanel.kt) 的「新增预设/重命名预设」按钮行追加「删除预设」按钮（`testTag("delete-preset")`），点击弹确认对话框（标题「删除预设」、正文含预设名称、确认「删除」、取消「取消」）；仅剩一个预设或 `busy` 时禁用；确认后执行删除并刷新预设列表、把 `draft` 重取为新激活预设配置、移除被删预设草稿、清空 `checks`、提示「已删除预设」；取消不产生任何改动。验证：CI 工程验证（编译、测试、lint）通过
-- [ ] 2.2 在 [`ImportAndPresetIntegrationTest`](../../app/src/androidTest/java/io/github/nahanhhan/lecturerecording/ImportAndPresetIntegrationTest.kt) 增加 UI 流程测试：确认删除后列表与激活预设更新、取消路径无改动、仅剩一个预设时删除入口禁用。验证：UI 测试覆盖 [`cloud-presets` spec](specs/cloud-presets/spec.md) 入口确认与拒绝场景，CI 工程验证通过
+- [x] 2.2 在 [`ImportAndPresetIntegrationTest`](../../app/src/androidTest/java/io/github/nahanhhan/lecturerecording/ImportAndPresetIntegrationTest.kt) 增加 UI 流程测试：确认删除后列表与激活预设更新、取消路径无改动、仅剩一个预设时删除入口禁用。验证：UI 测试覆盖 [`cloud-presets` spec](specs/cloud-presets/spec.md) 入口确认与拒绝场景，CI 工程验证通过
 - [ ] 2.3 同步 [`README.md`](../../README.md) 预设功能说明为「支持新增、重命名和删除」。验证：README 行为描述与实现一致，CI 工程验证通过
 
 ## 3. 集成核对与真机验收
