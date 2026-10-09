@@ -94,6 +94,19 @@ class SettingsStore(context: Context) {
             if (it.id == id) it.copy(name = normalized) else it
         })).apply()
     }
+    /** 删除预设：按 `preset_<id>_` 前缀清除其全部配置与测试标记；至少保留一个预设，删除激活预设时回落到剩余首个。 */
+    fun deletePreset(id: String) {
+        val list = presets()
+        require(list.any { it.id == id }) { "预设不存在" }
+        require(list.size > 1) { "至少保留一个预设" }
+        val remaining = list.filter { it.id != id }
+        val editor = preferences.edit()
+        preferences.all.keys.filter { it.startsWith("preset_${id}_") }.forEach { editor.remove(it) }
+        editor.putString("cloud_presets", protocolJson.encodeToString(remaining))
+        if (preferences.getString("cloud_active_preset", null) == id)
+            editor.putString("cloud_active_preset", remaining.first().id)
+        editor.apply()
+    }
     fun cloudPreset(id: String): CloudSettings {
         require(presets().any { it.id == id }) { "预设不存在" }
         val prefix = "preset_${id}_"
