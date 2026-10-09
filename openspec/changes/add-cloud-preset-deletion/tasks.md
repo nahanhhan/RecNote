@@ -13,7 +13,7 @@
 
 ## 3. 集成核对与真机验收
 
-- [ ] 3.1 端侧自检：在 `scripts/tests` 执行 `uv run python -m checks` 全部通过，并执行 `openspec validate add-cloud-preset-deletion` 通过。验证：两条命令零退出码（CI 通过仅为工程验证，不代表真机验收）
+- [x] 3.1 端侧自检：在 `scripts/tests` 执行 `uv run python -m checks` 全部通过，并执行 `openspec validate add-cloud-preset-deletion` 通过。验证：两条命令零退出码（CI 通过仅为工程验证，不代表真机验收）
 - [ ] 3.2 真机验收（人工勾选）：删除非激活预设后，当前激活预设及其配置、测试状态保持不变
 - [ ] 3.3 真机验收（人工勾选）：删除当前激活预设后自动激活剩余第一个预设，界面显示其保存的配置，无被删预设草稿残留
 - [ ] 3.4 真机验收（人工勾选）：删除确认对话框选「取消」无任何改动；仅剩一个预设时「删除预设」入口禁用
