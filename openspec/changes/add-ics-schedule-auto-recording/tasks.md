@@ -40,7 +40,7 @@
 - [x] 6.2 把首页「开始课堂录音」改为先调用 `resolveActive`：命中则跳过对话框，首次用日程名，已有关联课堂则用 `SessionNaming` 生成 `-x`；未命中保留 v1 对话框；`:app:assembleDebug` 通过
 - [x] 6.3 `RecordingService.runRecording` 接收并写入 `scheduleKey/scheduleTitle`；服务内增加 `StopTriggerRegistry`，把 `STOP` action 与页面停止都改经 `requestStop(StopReason.MANUAL)`，仅注册 `ManualStopTrigger`，未注册自动触发器时不调度 tick；确认停止后的收尾状态与 v1 一致；`:app:assembleDebug` 与 `:app:lintDebug` 通过
 - [x] 6.4 确认日志中不记录订阅链接中的凭据片段（查询串脱敏）；运行 `uv run python -m checks`（含 `log_redaction`）通过
-- [ ] 6.5 统一「开始录音后进入录音详情」：自动开录、日程内手动开始与对话框手动新建三条路径在录音开始后均直接导航到该课堂录音详情页，不停留在首页；删除自动开录 Toast 提示及其字符串；`:app:assembleDebug` 与 `:app:lintDebug` 通过，`uv run python -m checks` 通过
+- [x] 6.5 统一「开始录音后进入录音详情」：自动开录、日程内手动开始与对话框手动新建三条路径在录音开始后均直接导航到该课堂录音详情页，不停留在首页；删除自动开录 Toast 提示及其字符串；`:app:assembleDebug` 与 `:app:lintDebug` 通过，`uv run python -m checks` 通过
 
 ## 7. 文档与真机验收
 

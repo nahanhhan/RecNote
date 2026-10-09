@@ -87,7 +87,6 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             val start = runCatching { graph.autoStartCandidate(System.currentTimeMillis()) }.getOrNull() ?: return@launch
             AppLog.i("MainActivity", "按日程自动开始录音 title=${start.title}")
-            Toast.makeText(this@MainActivity, "已根据日程「${start.title}」自动开始录音", Toast.LENGTH_LONG).show()
             beginRecording(scheduledRecordingIntent(this@MainActivity, start))
         }
     }
@@ -133,6 +132,17 @@ class MainActivity : ComponentActivity() {
     LaunchedEffect(selectable) {
         selectedRecords = selectedRecords.filter { it in selectable }
         if (selectedRecords.isEmpty()) confirmBulkDelete = false
+    }
+    // 录音一旦开始（自动开录、日程内手动开始、对话框手动新建共用此入口）即进入该课堂录音详情；
+    // 记录已导航的课堂，旋转等重建不重复导航，权限被拒绝未开始录音则不导航。
+    var openedRecordingId by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(recording.lessonId) {
+        val id = recording.lessonId
+        if (id != null && id != openedRecordingId) {
+            openedRecordingId = id
+            selectedId = id
+            page = "detail"
+        }
     }
     BackHandler(page != "home" || selecting) {
         if (selecting) { selecting = false; selectedRecords = emptyList() } else page = "home"
