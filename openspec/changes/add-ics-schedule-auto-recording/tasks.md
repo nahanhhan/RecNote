@@ -33,6 +33,7 @@
 - [x] 5.1 新增日程设置面板：导入文件、添加订阅链接（含错误提示）、来源列表（最近成功时间/失败原因、手动刷新、删除，删除不影响已有课堂）；在 `SettingsScreen` 挂载；`:app:assembleDebug` 与 `:app:lintDebug` 通过
 - [x] 5.2 面板加入 `RangeSlider`（`-10f..5f`，14 steps，拉杆不交叉），按正负值显示「开始前 N 分钟」「开始后 N 分钟」「开始时」，修改立即写入 `SettingsStore`；`:app:assembleDebug` 通过，真机验证见 7.2
 - [x] 5.3 面板加入「未来 24 小时日程预览」，展示标题和开始/结束时刻，便于核对时区与重复规则；`:app:assembleDebug` 通过，真机验证见 7.1
+- [ ] 5.4 将「导入 .ics 文件」按钮移至「添加订阅」按钮所在行：两按钮同行、该行靠右，且「导入 .ics 文件」位于「添加订阅」右侧；`:app:assembleDebug` 与 `:app:lintDebug` 通过
 
 ## 6. app：自动开录、命名与停止入口收口
 
