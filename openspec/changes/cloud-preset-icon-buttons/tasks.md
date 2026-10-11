@@ -2,7 +2,7 @@
 
 ## 1. 图标资源落盘
 
-- [ ] 1.1 将用户提供的三个 24dp 矢量图标复制到 [`drawable`](../../app/src/main/res/drawable/)，命名为 `ic_add_24px.xml`、`ic_edit_24px.xml`、`ic_delete_24px.xml`，内容与 `C:\Users\Tony\Downloads` 下同名文件保持一致。验证：三个文件存在且与源文件逐字节一致（`fc /b` 比较通过）
+- [x] 1.1 将用户提供的三个 24dp 矢量图标复制到 [`drawable`](../../app/src/main/res/drawable/)，命名为 `ic_add_24px.xml`、`ic_edit_24px.xml`、`ic_delete_24px.xml`，内容与 `C:\Users\Tony\Downloads` 下同名文件保持一致。验证：三个文件存在且与源文件逐字节一致（`fc /b` 比较通过）
 
 ## 2. 预设管理入口图标化
 
