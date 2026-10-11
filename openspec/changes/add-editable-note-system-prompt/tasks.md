@@ -15,8 +15,8 @@
 
 ## 3. 上传与发布
 
-- [x] 3.1 再次检查远端并正常推送 main，功能提交 `4ddb27a` 最终工程验证通过。
-- [ ] 3.2 发布 `v0.1.8-alpha` 并确认 APK 实际版本、签名和摘要，保留历史资源。
+- [x] 3.1 再次检查远端并正常推送 main，功能提交 `4ddb27a` 及发布提交 `6483395` 工程验证通过。[发布提交 CI](https://github.com/nahanhhan/RecNote/actions/runs/38129419797)。
+- [x] 3.2 发布 `v0.1.8-alpha` 并确认 APK 实际版本、签名和摘要，保留历史资源。[发布工作流](https://github.com/nahanhhan/RecNote/actions/runs/38129422800)、[Release](https://github.com/nahanhhan/RecNote/releases/tag/v0.1.8-alpha)。
 
 ## 4. 真机验收（人工勾选）
 
@@ -33,3 +33,8 @@
 - 端侧 `uv run python -m checks` 七项通过，新增提示词边界检查已注册；发布脚本的六项 `uv run python -m unittest discover -s .` 测试通过。
 - 官方 `openspec validate add-editable-note-system-prompt --strict` 通过。
 - 未使用真实录音资料或密钥，没有连接真实模型测试自定义风格；第 4 组保持待人工验收。
+- 发布工作流的 compact 单测、lint 和优化 APK 构建均通过；下载安装包仅作静态核对，未安装到手机。
+- APK 实际包名 `io.github.nahanhhan.lecturerecording`、versionName `0.1.8-alpha`、versionCode 7、arm64-v8a；文件大小 27,594,933 字节。
+- APK SHA-256 `356ccb6a410062ef00058521360760327de041bf59d68c72cd918b0bd180e841` 与 GitHub Release 资源摘要一致。
+- apksigner 验证通过，公开签名证书 SHA-256 为 `4149018b4ba6e74ff27c12e96d775fe01bbab4b510275509c1a7225a89f81f3e`，沿用仓库固定签名；历史标签和 APK 保留。
+- 提示词边界检查补齐文件缺失/JSON 格式错误的失败列表反馈，避免异常终止而遗漏其他检查摘要。
