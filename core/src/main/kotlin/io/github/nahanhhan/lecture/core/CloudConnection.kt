@@ -64,6 +64,19 @@ object CloudRequests {
         }
         return JsonObject(result)
     }
+
+    /** 调试请求仍可定位协议问题，但不写入用户的系统提示词正文。 */
+    fun loggable(body: JsonObject): JsonObject {
+        val messages = body["messages"] as? JsonArray ?: return body
+        val safe = messages.map { item ->
+            val message = item as? JsonObject
+            val role = (message?.get("role") as? JsonPrimitive)?.contentOrNull
+            if (message != null && role in setOf("system", "developer"))
+                JsonObject(message + ("content" to JsonPrimitive("[系统提示词正文已省略]")))
+            else item
+        }
+        return JsonObject(body + ("messages" to JsonArray(safe)))
+    }
 }
 
 object CloudErrors {

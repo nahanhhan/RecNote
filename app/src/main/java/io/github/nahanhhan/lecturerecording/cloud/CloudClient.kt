@@ -22,7 +22,7 @@ class CloudClient(private val settings: CloudSettings, private val client: OkHtt
     suspend fun complete(body: JsonObject): JsonObject {
         require(settings.model.isNotBlank()) { "请填写模型名称" }
         val adapted = CloudRequests.adapt(body, settings.baseUrl, settings.strict)
-        AppLog.d("CloudClient") { "请求正文=$adapted" }
+        AppLog.d("CloudClient") { "请求正文=${CloudRequests.loggable(adapted)}" }
         return execute(request(CloudEndpoint.completions(settings.baseUrl))
             .post(adapted.toString().toRequestBody("application/json".toMediaType())).build())
     }

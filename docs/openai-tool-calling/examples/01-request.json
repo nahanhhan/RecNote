@@ -30,7 +30,7 @@
       "type": "function",
       "function": {
         "name": "save_class_notes",
-        "description": "保存当前课堂、当前整理批次的图文笔记。只整理本次提供的课堂文字与照片，不添加额外知识、解释或例子。来源编号必须来自本次输入。",
+        "description": "保存当前录音、当前整理批次的笔记。写作要求由系统提示词指定，来源编号必须来自本次输入。",
         "strict": true,
         "parameters": {
           "type": "object",
@@ -51,7 +51,7 @@
                   },
                   "markdown": {
                     "type": "string",
-                    "description": "只依据课堂来源整理的正文，支持 Markdown、代码块和数学公式。图片由 App 根据 photo_ids 插入。"
+                    "description": "本部分的笔记正文，支持 Markdown、代码块和数学公式。图片由 App 根据 photo_ids 插入。"
                   },
                   "source_segment_ids": {
                     "type": "array",
