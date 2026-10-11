@@ -5,7 +5,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -105,7 +104,10 @@ import kotlin.math.roundToInt
         }
         OutlinedTextField(url, { url = it }, modifier = Modifier.fillMaxWidth(), singleLine = true,
             label = { Text("订阅链接（https:// 或 webcal://）") })
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            OutlinedButton(enabled = !busy, onClick = {
+                picker.launch(arrayOf("text/calendar", "application/octet-stream", "text/plain"))
+            }) { Text("导入 .ics 文件") }
             OutlinedButton(enabled = !busy && url.isNotBlank(), onClick = {
                 launchTask {
                     val source = graph.schedules.addSubscription(url)
@@ -113,9 +115,6 @@ import kotlin.math.roundToInt
                     message = "已订阅「${source.name}」"
                 }
             }) { Text("添加订阅") }
-            OutlinedButton(enabled = !busy, onClick = {
-                picker.launch(arrayOf("text/calendar", "application/octet-stream", "text/plain"))
-            }) { Text("导入 .ics 文件") }
         }
         if (message.isNotBlank()) Text(message, style = MaterialTheme.typography.bodySmall)
 
