@@ -11,12 +11,13 @@
 - [x] 2.1 加密保存 WebDAV 配置，增加日程名映射二级页面和返回导航。
 - [x] 2.2 接入上传快照、WorkManager 有限重试和冷启动恢复；整理完成、编辑保存触发；详情页状态与手动上传。
 - [x] 2.3 关闭/改配置和删除本地记录清理排队任务；保持导入音频仅文字；调整 HTTP 支持与其他网络入口的 HTTPS 边界。
-- [ ] 2.4 CI 工程验证本批；同步 README、架构、版本、端侧检查注册和发布说明。
+- [x] 2.4 CI 工程验证本批；同步 README、架构、版本、端侧检查注册和发布说明。[完整功能 CI](https://github.com/nahanhhan/RecNote/actions/runs/38122535437) 通过。
 
 ## 3. 上传与发布
 
-- [ ] 3.1 上传前检查远端并安全合入 main；最终 CI 工程验证通过，记录工作流链接。
+- [x] 3.1 上传前检查远端并安全合入 main；功能提交 `20bae5e` 的最终 CI 工程验证通过，记录工作流链接。
 - [ ] 3.2 发布 `v0.1.7-alpha`，确认 Releases 有版本相符的 APK，保留历史资源。
+- [ ] 3.3 补齐 `v0.1.6-alpha` 的 APK，按原始 `c8d992a` 独立构建发布，保留已有历史资源。
 
 ## 4. 真机验收（人工勾选）
 
@@ -28,3 +29,12 @@
 - [ ] 4.6 系统返回、顶栏返回和旋转均保持二级页面正常；HTTP 局域网网盘与 HTTPS 网盘均可连接。
 
 Android 仪器测试 `WebDavSettingsTest` 覆盖真实 Keystore 密文、配置重读、配置 revision 与映射去重，要求隔离 `.uitest` 应用；本批尚未执行仪器测试，不能以 CI 单元测试通过替代 4.1–4.6。
+
+## 验证记录
+
+- 新增 5 个 core 用例：日程名路由、路径越界/去重、稳定内容版本、重启恢复与旧 worker 更新保护、删除快照隔离。
+- 新增 8 个 MockWebServer 用例：目录/随机空探测文件读写、207 属性拒绝、错误 href/外部实体、跳转凭据保护、405 文件冲突、Unicode 根内路径和流式上传、错误脱敏/重试分类、地址凭据与查询参数拒绝。
+- 端侧 `uv run python -m checks` 六项通过，新增 WebDAV 安全检查已注册；`uv run python -m unittest discover -s .` 六项发布脚本测试通过，临时目录位于工作区。
+- 官方 `openspec validate add-webdav-note-sync --strict` 与同批调整的日程 change 校验通过。
+- GitHub 两个功能批次均完成 `:core:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug`，上述链接仅代表工程验证通过。
+- 全部测试使用合成数据、模拟 HTTP 服务和假账号，不使用或打印真实凭据；尚未连接真实网盘或执行手机人工验收。
