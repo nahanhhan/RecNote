@@ -15,9 +15,9 @@
 
 ## 3. 上传与发布
 
-- [x] 3.1 上传前检查远端并安全合入 main；功能提交 `20bae5e` 的最终 CI 工程验证通过，记录工作流链接。
-- [ ] 3.2 发布 `v0.1.7-alpha`，确认 Releases 有版本相符的 APK，保留历史资源。
-- [ ] 3.3 补齐 `v0.1.6-alpha` 的 APK，按原始 `c8d992a` 独立构建发布，保留已有历史资源。
+- [x] 3.1 上传前检查远端并安全合入 main；功能提交 `20bae5e` 及发布提交 `eb24cba` 的 CI 工程验证通过。[发布提交 CI](https://github.com/nahanhhan/RecNote/actions/runs/38122887105)。
+- [x] 3.2 发布 `v0.1.7-alpha`，确认 Releases 有版本相符的 APK，保留历史资源。[发布工作流](https://github.com/nahanhhan/RecNote/actions/runs/38123000109)、[Release](https://github.com/nahanhhan/RecNote/releases/tag/v0.1.7-alpha)。
+- [x] 3.3 补齐 `v0.1.6-alpha` 的 APK，按原始 `c8d992a` 独立构建发布，保留已有历史资源。[历史包工作流](https://github.com/nahanhhan/RecNote/actions/runs/38122750135)、[Release](https://github.com/nahanhhan/RecNote/releases/tag/v0.1.6-alpha)。
 
 ## 4. 真机验收（人工勾选）
 
@@ -38,3 +38,7 @@ Android 仪器测试 `WebDavSettingsTest` 覆盖真实 Keystore 密文、配置�
 - 官方 `openspec validate add-webdav-note-sync --strict` 与同批调整的日程 change 校验通过。
 - GitHub 两个功能批次均完成 `:core:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug`，上述链接仅代表工程验证通过。
 - 全部测试使用合成数据、模拟 HTTP 服务和假账号，不使用或打印真实凭据；尚未连接真实网盘或执行手机人工验收。
+- 两个发布工作流均通过 compact 单测、lint 与优化 APK 构建；下载安装包只作静态核对，未安装到手机。
+- `0.1.7-alpha` APK：27,578,593 字节，SHA-256 `4cf4d481c67547acb0ba8e427faabe1fdb7abec0245625ab773f54006413becd`，实际包名 `io.github.nahanhhan.lecturerecording`、versionCode 6、versionName `0.1.7-alpha`、arm64-v8a。
+- `0.1.6-alpha` APK：27,513,057 字节，SHA-256 `d5501c4aca8d6e39e2410713241b9dbd5fd40339f120a8449a236bd53a66bd01`，实际 versionCode 5、versionName `0.1.6-alpha`、arm64-v8a；标签准确指向 `c8d992a`。
+- 两包签名均经 apksigner 验证，公开证书 SHA-256 为 `4149018b4ba6e74ff27c12e96d775fe01bbab4b510275509c1a7225a89f81f3e`，与此前仓库固定签名一致；文件摘要与 GitHub Release 资源摘要一致。
