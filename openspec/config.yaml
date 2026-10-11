@@ -13,6 +13,7 @@ context: |
   - CI 通过仅表述为工程验证（编译、测试、lint）通过，MUST NOT 呈现为真机发布验收通过；真机验收由各 change 的 tasks.md 人工勾选执行。
   - 夹具同步：开发规范变更 SHALL 同批同步本 context，新增验证测试 SHALL 同批注册进 scripts/tests 的 `uv run python -m checks` 检查清单；及时落地，MUST NOT 事后补写或遗漏。
   - README 仅在存在需要通知用户的行为或约定变化时才改动；检查项增减、内部实现调整 MUST NOT 触发 README 改动。
+  - WebDAV 凭据 MUST 本机加密保存且任何日志档位均不可输出；同步测试只用合成资料与模拟服务。导入音频的同步 MUST 仅发送文字笔记，不允许图文混合流程。
 
 # Per-artifact rules (optional)
 # Add custom rules for specific artifacts.

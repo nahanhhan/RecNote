@@ -50,7 +50,10 @@ class NotesService : Service() {
             } catch (error: Exception) {
                 AppLog.e("NotesService", "整理失败 job=$currentJobId", error)
                 withContext(NonCancellable) {
-                    currentJobId?.let { graph.dao.jobStatus(it, "waiting", if (error is CancellationException) "任务已暂停，可手动继续" else error.message ?: "整理失败，可手动重试") }
+                    currentJobId?.let {
+                        if (graph.dao.job(it)?.status != "completed") graph.dao.jobStatus(it, "waiting",
+                            if (error is CancellationException) "任务已暂停，可手动继续" else error.message ?: "整理失败，可手动重试")
+                    }
                 }
             } finally {
                 withContext(NonCancellable) { graph.lessonOperations.withLock { graph.cloudLessonId.value = null } }
@@ -125,9 +128,12 @@ class NotesService : Service() {
                 AppLog.i("NotesService", "批次保存确认 batch=${batch.batchId}")
             }
         }
-        graph.dao.jobStatus(job.id, "completed")
-        graph.dao.clearEditedNote(job.lessonId)
+        graph.database.withTransaction {
+            graph.dao.jobStatus(job.id, "completed")
+            graph.dao.clearEditedNote(job.lessonId)
+        }
         AppLog.i("NotesService", "整理任务完成 job=${job.id}")
+        graph.webDav.enqueueAfterNotes(job.lessonId)
     }
     override fun onTimeout(startId: Int, fgsType: Int) {
         AppLog.e("NotesService", "前台服务超时，停止整理")

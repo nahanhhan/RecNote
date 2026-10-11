@@ -38,6 +38,7 @@ import io.github.nahanhhan.lecturerecording.photos.PhotoImages
 import io.github.nahanhhan.lecture.core.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.decodeFromString
 import java.io.File
 
@@ -55,6 +56,10 @@ import java.io.File
     val editedNote by remember(id) { graph.dao.observeEditedNote(id) }.collectAsStateWithLifecycle(initialValue = null)
     val recording by graph.recording.collectAsStateWithLifecycle()
     val importing by graph.importing.collectAsStateWithLifecycle()
+    val uploadStates by graph.webDav.states.collectAsStateWithLifecycle()
+    val syncEnabled by graph.webDav.enabled.collectAsStateWithLifecycle()
+    var uploadPreparing by remember(id) { mutableStateOf(false) }
+    var noteSaving by remember(id) { mutableStateOf(false) }
     var camera by rememberSaveable(id) { mutableStateOf(false) }
     var tab by remember { mutableStateOf(0) }
     var error by remember { mutableStateOf("") }
@@ -163,6 +168,29 @@ import java.io.File
                 Text("笔记：${statusLabel(job.status)} · 已保存 ${noteBatches.size} 批", style = MaterialTheme.typography.bodySmall)
                 if (job.error.isNotBlank()) Text(job.error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
+            if (markdown.isNotBlank()) {
+                val upload = uploadStates[id]
+                val uploadLabel = when (upload?.status) {
+                    "pending" -> "等待网络上传"; "uploading" -> "正在上传"
+                    "retrying" -> "等待自动重试"; "completed" -> "已上传"
+                    "failed" -> "上传失败"; "paused" -> "已暂停"
+                    else -> if (syncEnabled) "尚未上传" else "云同步未启用"
+                }
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Text("网盘：$uploadLabel", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                    if (syncEnabled) TextButton(enabled = !uploadPreparing && !cloudRunning && jobs.firstOrNull()?.status == "completed" &&
+                        upload?.status !in setOf("pending", "uploading", "retrying"), onClick = {
+                        uploadPreparing = true
+                        scope.launch {
+                            try { graph.webDav.enqueue(id); error = "" }
+                            catch (cancelled: CancellationException) { throw cancelled }
+                            catch (exception: Exception) { error = exception.message ?: "准备上传失败，请检查本地资料后重试" }
+                            finally { uploadPreparing = false }
+                        }
+                    }) { Text(if (upload?.status in setOf("failed", "paused")) "重试上传" else "上传笔记") }
+                }
+                if (!upload?.error.isNullOrBlank()) Text(upload!!.error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
             if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error)
             if (playing) TextButton(onClick = { player.pause(); playing = false }) { Text("暂停回听") }
         }
@@ -243,9 +271,21 @@ import java.io.File
         var text by remember { mutableStateOf(markdown) }
         AlertDialog(onDismissRequest = { editNote = false }, title = { Text("编辑课堂笔记") }, text = {
             OutlinedTextField(text, { text = it }, modifier = Modifier.heightIn(min = 240.dp, max = 440.dp))
-        }, confirmButton = { TextButton(onClick = {
+        }, confirmButton = { TextButton(enabled = !noteSaving, onClick = {
             AppLog.i("DetailScreen", "编辑笔记保存 lesson=$id")
-            scope.launch { graph.dao.putEditedNote(EditedNoteEntity(id, text)) }; editNote = false
+            noteSaving = true
+            scope.launch {
+                try {
+                    withContext(Dispatchers.IO) { graph.lessonOperations.withLock {
+                        check(graph.dao.lesson(id) != null) { "录音记录已删除" }
+                        graph.dao.putEditedNote(EditedNoteEntity(id, text))
+                    } }
+                    editNote = false
+                    graph.webDav.enqueueAfterNotes(id)
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { error = "笔记保存失败，请重试" }
+                finally { noteSaving = false }
+            }
         }) { Text("保存") } },
             dismissButton = { TextButton(onClick = { editNote = false }) { Text("取消") } })
     }

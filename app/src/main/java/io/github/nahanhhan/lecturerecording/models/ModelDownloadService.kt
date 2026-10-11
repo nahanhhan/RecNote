@@ -82,7 +82,8 @@ class ModelDownloadService : Service() {
         val offset = if (partial.exists()) partial.length() else 0
         AppLog.i("ModelDownloadService", "下载 model=${model.id} 已有=${offset}B 总计=${model.bytes}B")
         graph.download.value = DownloadState(model.id, offset, model.bytes, "downloading")
-        val client = OkHttpClient.Builder().connectTimeout(30, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build()
+        val client = OkHttpClient.Builder().connectTimeout(30, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS)
+            .followSslRedirects(false).build()
         if (offset < model.bytes) {
             val builder = Request.Builder().url(model.urlFor(source))
             if (offset > 0) {

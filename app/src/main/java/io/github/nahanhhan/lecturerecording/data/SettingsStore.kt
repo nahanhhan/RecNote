@@ -9,6 +9,9 @@ import io.github.nahanhhan.lecture.core.AutoStartWindow
 import io.github.nahanhhan.lecture.core.CloudEndpoint
 import io.github.nahanhhan.lecture.core.CloudProvider
 import io.github.nahanhhan.lecture.core.protocolJson
+import io.github.nahanhhan.lecture.core.ScheduleFolder
+import io.github.nahanhhan.lecture.core.WebDavPaths
+import io.github.nahanhhan.lecturerecording.sync.WebDavClient
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
@@ -26,8 +29,33 @@ data class CloudSettings(val baseUrl: String, val model: String, val key: String
 }
 @Serializable data class CloudPreset(val id: String, val name: String)
 
+data class WebDavSettings(val baseUrl: String = "", val username: String = "", val password: String = "", val revision: Long = 0) {
+    override fun toString() = "WebDavSettings(enabled=${baseUrl.isNotBlank()}, revision=$revision, credentials=***)"
+}
+
 class SettingsStore(context: Context) {
     private val preferences = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    /** 新增网盘凭据不进入日志；用户名和密码均只以加密密文落盘。 */
+    fun webDav() = WebDavSettings(preferences.getString("webdav_url", "").orEmpty(),
+        decrypt(preferences.getString("webdav_user_cipher", null)), decrypt(preferences.getString("webdav_password_cipher", null)),
+        preferences.getLong("webdav_revision", 0))
+
+    fun saveWebDav(value: WebDavSettings): WebDavSettings {
+        val old = webDav()
+        val normalized = value.copy(baseUrl = if (value.baseUrl.isBlank()) "" else WebDavClient.normalize(value.baseUrl), username = value.username.trim())
+        require(!normalized.username.contains(':') && normalized.username.none { it.isISOControl() }) { "用户名不能包含冒号或控制字符" }
+        val changed = old.baseUrl != normalized.baseUrl || old.username != normalized.username || old.password != normalized.password
+        val saved = normalized.copy(revision = if (changed) old.revision + 1 else old.revision)
+        check(preferences.edit().putString("webdav_url", saved.baseUrl)
+            .putString("webdav_user_cipher", encrypt(saved.username)).putString("webdav_password_cipher", encrypt(saved.password))
+            .putLong("webdav_revision", saved.revision).commit()) { "网盘设置保存失败，请重试" }
+        return saved
+    }
+
+    var webDavFolders: List<ScheduleFolder>
+        get() = runCatching { WebDavPaths.folders(protocolJson.decodeFromString<List<ScheduleFolder>>(
+            preferences.getString("webdav_folders", "[]")!!)) }.getOrDefault(emptyList())
+        set(value) { check(preferences.edit().putString("webdav_folders", protocolJson.encodeToString(WebDavPaths.folders(value))).commit()) { "日程文件夹保存失败" } }
     var modelId: String
         get() = preferences.getString("asr_model", "aed")!!
         set(value) { preferences.edit().putString("asr_model", value).apply() }
@@ -140,12 +168,14 @@ class SettingsStore(context: Context) {
         provider, preferences.getBoolean(prefix + "photos", provider.defaultPhotos))
 
     private fun write(editor: android.content.SharedPreferences.Editor, prefix: String, value: CloudSettings) {
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, secretKey()) }
-        val encrypted = cipher.iv + cipher.doFinal(value.key.toByteArray())
         editor.putString(prefix + "base_url", value.baseUrl).putString(prefix + "model", value.model)
             .putString(prefix + "provider", value.provider.id).putBoolean(prefix + "strict", value.strict)
             .putBoolean(prefix + "photos", value.includePhotos)
-            .putString(prefix + "key_cipher", Base64.encodeToString(encrypted, Base64.NO_WRAP))
+            .putString(prefix + "key_cipher", encrypt(value.key))
+    }
+    private fun encrypt(value: String): String {
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, secretKey()) }
+        return Base64.encodeToString(cipher.iv + cipher.doFinal(value.toByteArray(Charsets.UTF_8)), Base64.NO_WRAP)
     }
     fun saveCloud(settings: CloudSettings, resetTest: Boolean = false) {
         val id = settings.presetId.ifBlank { activePreset().id }

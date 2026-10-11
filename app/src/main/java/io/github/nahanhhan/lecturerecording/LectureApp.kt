@@ -11,6 +11,7 @@ import io.github.nahanhhan.lecturerecording.logging.AppLog
 import io.github.nahanhhan.lecturerecording.recording.WavFile
 import io.github.nahanhhan.lecturerecording.schedule.ScheduleRefreshWorker
 import io.github.nahanhhan.lecturerecording.schedule.ScheduleRepository
+import io.github.nahanhhan.lecturerecording.sync.WebDavSyncRepository
 
 data class RecordingState(val lessonId: String? = null, val status: String = "idle", val samples: Long = 0,
     val preview: String = "", val queueSize: Int = 0, val warning: String = "")
@@ -31,6 +32,7 @@ class AppGraph(val app: Application) {
     val lessonOperations = Mutex()
     val recordings = RecordingRepository(this)
     val download = MutableStateFlow(DownloadState())
+    val webDav = WebDavSyncRepository(this)
     fun lessonDir(id: String) = File(app.filesDir, "lessons/$id").apply { mkdirs() }
     val initialized = scope.async {
         recordings.recoverDeletions()
@@ -58,6 +60,7 @@ class LectureApp : Application() {
         if (!getProcessName().endsWith(":asr")) {
             graph = AppGraph(this)
             ScheduleRefreshWorker.schedule(this)
+            graph.scope.launch { graph.initialized.await(); graph.webDav.restore() }
         }
     }
 }

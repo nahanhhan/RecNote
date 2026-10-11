@@ -35,3 +35,5 @@
 路径/映射/内容版本与持久化队列在 core 单测中验证；HTTP 成功、多状态错误、重定向、认证、目录冲突和重试使用 MockWebServer。端侧 `uv run python -m checks` 同批注册新增验证；OpenSpec 用官方 CLI 校验。编译、单测、lint、APK 构建以 GitHub CI 结果为准，真机验收单列在 tasks.md。
 
 参考：[WebDAV RFC 4918](https://datatracker.ietf.org/doc/html/rfc4918)、[Android 网络安全配置](https://developer.android.com/privacy-and-security/security-config)。
+
+同批其他调整：`NotesService` 完成状态与清除编辑覆盖改为同一事务，已完成任务不因同步排队中断改回等待；笔记编辑保存与删除共用操作锁。新增 `webdav_safety` 提交前检查并注册默认清单。README 去除旧的「不提供云同步」描述，原日程 proposal 更新应用明文策略的后续变更说明，历史 archive 不回改。

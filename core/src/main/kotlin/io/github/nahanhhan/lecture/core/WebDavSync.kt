@@ -76,7 +76,7 @@ object WebDavPaths {
 @Serializable data class NoteUpload(
     val lessonId: String, val packageId: String, val configRevision: Long,
     val directory: String, val files: List<String>, val status: String = "pending",
-    val error: String = "", val updatedAt: Long = System.currentTimeMillis()
+    val error: String = "", val updatedAt: Long = System.currentTimeMillis(), val attempts: Int = 0
 )
 
 /** 私有文件队列；状态原子替换，过期 worker 只能更新自己仍持有的快照。 */
@@ -108,9 +108,9 @@ class NoteUploadStore(private val root: File) {
         catch (_: AtomicMoveNotSupportedException) { Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING) }
     }
 
-    @Synchronized fun update(lessonId: String, packageId: String, status: String, error: String = ""): NoteUpload? {
+    @Synchronized fun update(lessonId: String, packageId: String, status: String, error: String = "", attempts: Int? = null): NoteUpload? {
         val old = get(lessonId)?.takeIf { it.packageId == packageId } ?: return null
-        return old.copy(status = status, error = error, updatedAt = System.currentTimeMillis()).also { put(it) }
+        return old.copy(status = status, error = error, updatedAt = System.currentTimeMillis(), attempts = attempts ?: old.attempts).also { put(it) }
     }
 
     @Synchronized fun remove(lessonId: String) {

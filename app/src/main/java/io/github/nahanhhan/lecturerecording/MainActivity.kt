@@ -145,13 +145,13 @@ class MainActivity : ComponentActivity() {
         }
     }
     BackHandler(page != "home" || selecting) {
-        if (selecting) { selecting = false; selectedRecords = emptyList() } else page = "home"
+        if (selecting) { selecting = false; selectedRecords = emptyList() } else page = if (page == "webdav-folders") "settings" else "home"
     }
     Scaffold(topBar = {
-        TopAppBar(title = { Text(if (selecting && page == "home") "已选择 ${selectedRecords.size} 条" else if (page == "settings") "设置" else if (page == "detail") "课堂记录" else "RecNote") },
+        TopAppBar(title = { Text(if (selecting && page == "home") "已选择 ${selectedRecords.size} 条" else if (page == "webdav-folders") "日程文件夹" else if (page == "settings") "设置" else if (page == "detail") "课堂记录" else "RecNote") },
             navigationIcon = {
                 if (selecting && page == "home") IconButton(onClick = { selecting = false; selectedRecords = emptyList() }) { Icon(Icons.Default.Close, "退出多选") }
-                else if (page != "home") IconButton(onClick = { page = "home" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
+                else if (page != "home") IconButton(onClick = { page = if (page == "webdav-folders") "settings" else "home" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
             },
             actions = {
                 if (selecting && page == "home") {
@@ -161,13 +161,14 @@ class MainActivity : ComponentActivity() {
                     IconButton(enabled = selectedRecords.isNotEmpty(), onClick = { confirmBulkDelete = true }) { Icon(Icons.Default.Delete, "删除所选") }
                 } else {
                     if (page == "home" && lessons.isNotEmpty()) TextButton(onClick = { selecting = true }) { Text("多选") }
-                    if (page != "settings") IconButton(onClick = { page = "settings" }) { Icon(Icons.Default.Settings, "设置") }
+                    if (page != "settings" && page != "webdav-folders") IconButton(onClick = { page = "settings" }) { Icon(Icons.Default.Settings, "设置") }
                 }
             })
     }) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             when (page) {
-                "settings" -> SettingsScreen(activity, graph)
+                "settings" -> SettingsScreen(activity, graph) { page = "webdav-folders" }
+                "webdav-folders" -> WebDavFoldersScreen(graph)
                 "detail" -> selectedId?.let { DetailScreen(activity, graph, it) { selectedId = null; page = "home" } }
                 else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     if (!selecting) item {

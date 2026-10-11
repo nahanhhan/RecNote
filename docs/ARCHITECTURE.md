@@ -70,6 +70,18 @@ DeepSeek 适配按实际官方域名识别，旧自定义配置也适用：显�
 
 原始照片留在手机；上传时按最长边缩小并编码 JPEG。模型获得照片编号、原文件名、音频时间和相邻图片。API Key 仅参与 HTTP 鉴权，由 Android Keystore 加密保存；不写入日志、笔记、任务快照或导出。
 
+## WebDAV 笔记同步
+
+`SettingsStore` 保存网盘地址与配置 revision，用户名/密码均由 AndroidKeyStore AES-GCM 加密。映射以 `scheduleTitle` 原始 ICS 日程名精确匹配，不使用可编辑标题或 `-x` 编号。路径始终相对 WebDAV 地址根目录，未匹配用根目录，禁止点路径逃逸。
+
+`WebDavSyncRepository` 在整理成功及笔记编辑保存后制作私有不可变快照：`files/webdav/packages/<lessonId>/<packageId>/` 包含 `notes.md` 和 Markdown 引用的本地照片。导入音频只取文字。目的文件夹含 UTC 创建时间、安全标题、录音编号与 Markdown/照片内容 hash，内容变化保存不同版本，相同快照重试不变。状态在 `files/webdav/state/<lessonId>.json` 原子持久化，不含凭据，无 Room schema 变化。
+
+`WebDavUploadWorker` 每条录音一个唯一任务，网络约束、指数退避、最多五次自动尝试，启动后恢复未完成队列。旧 worker 只能修改自己持有的 packageId 状态；改网盘配置会停止旧队列，本地删除取消对应任务并清理快照，不删除远端资料。上传成功与失败独立于笔记整理状态，失败仍可阅读和导出，详情页可手动重试。
+
+`WebDavClient` 严格验证 PROPFIND 207 中对应资源的集合属性，逐级 MKCOL，405 再查目录；照片先 PUT，最后 PUT Markdown。XML 限制 256 KiB，拒绝 DTD/ENTITY；请求可取消、有限超时、禁止重定向、沿用系统 TLS 证书验证。连接测试只写入并删除随机空探测文件。错误不包含服务端正文或凭据，Debug 也不记录网盘账号/密码。HTTP WebDAV 需要应用启用明文流量，模型接口与 ICS 入口仍限制 HTTPS，模型下载禁止 HTTPS 降级重定向。
+
+设置二级页面提供映射增改删和独立返回导航。修改映射只影响之后制作的上传快照，历史笔记由用户主动上传。
+
 ## 阅读和导出
 
 批次按序合并为 Markdown，来源显示为段落录音时间，图片由本地编号映射插入。模型未引用的照片按录音时间匹配所引用的转写段落并插入对应小节；讲话间隙匹配前一来源，开头/结尾匹配最近可用来源。模型已明确引用的位置保留，每张照片只出现一次。只有没有任何可用文字来源的照片才附在末尾。CommonMark 渲染时转义原始 HTML，WebView 阻止网络加载，KaTeX 及字体在 APK 内供离线公式渲染。

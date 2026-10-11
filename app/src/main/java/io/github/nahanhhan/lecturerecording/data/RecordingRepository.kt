@@ -57,6 +57,11 @@ class RecordingRepository(private val graph: AppGraph) {
                     AppLog.e("RecordingRepository", "已删除记录，残留文件将于下次启动继续清理", error)
                 }
             }
+            requested.forEach { id ->
+                runCatching { graph.webDav.remove(id) }.onFailure {
+                    AppLog.e("RecordingRepository", "上传快照将于下次启动继续清理")
+                }
+            }
             AppLog.i("RecordingRepository", "已删除录音数量=$deleted")
             deleted
         }

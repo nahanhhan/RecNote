@@ -24,7 +24,7 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable fun SettingsScreen(activity: MainActivity, graph: AppGraph) {
+@Composable fun SettingsScreen(activity: MainActivity, graph: AppGraph, onWebDavFolders: () -> Unit = {}) {
     var glossary by remember { mutableStateOf(graph.settings.glossary) }
     var selectedModel by remember { mutableStateOf(graph.settings.modelId) }
     var source by remember { mutableStateOf(graph.settings.downloadSource) }
@@ -87,6 +87,8 @@ import java.time.format.DateTimeFormatter
         SchedulePanel(activity, graph)
         HorizontalDivider()
         CloudSettingsPanel(activity, graph)
+        HorizontalDivider()
+        WebDavSettingsPanel(graph, onWebDavFolders)
         HorizontalDivider()
         Text("课程术语", style = MaterialTheme.typography.titleLarge)
         Text("术语帮助云端理解已有课堂内容。用逗号或换行分隔。")

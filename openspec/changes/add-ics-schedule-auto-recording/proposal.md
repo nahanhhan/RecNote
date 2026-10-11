@@ -29,6 +29,6 @@ v1 的 RecNote 只是跑通了录音、转写、整理等组件，交互仍是�
 
 - 新增 `core` 纯 Kotlin 逻辑（可由 `:core:test` 验证）：`IcsParser`、重复规则展开、`ScheduleResolver`（按当前时刻和阈值选出日程）、`SessionNaming`、`StopTrigger` 抽象。
 - `app` 受影响：`data/Database.kt`（版本 3 迁移，`LessonEntity` 新增字段，新增 `schedule_sources` 表）、`data/SettingsStore.kt`（阈值）、`LectureApp.kt`（`AppGraph` 持有日程仓库）、`MainActivity.kt`（启动即判定、手动开始时跳过标题对话框的条件、开始后导航到录音详情、移除自动开录 Toast）、`recording/RecordingService.kt`（接收日程绑定参数；停止指令改经停止触发器入口）、`ui/SettingsScreen.kt` 及新增日程设置面板；新增日程仓库与定时刷新任务。
-- 新增依赖：`androidx.work:work-runtime-ktx`（订阅链接定时刷新）。无新增权限（`INTERNET` 已声明）；订阅仅限 HTTPS，`usesCleartextTraffic` 保持关闭。
+- 新增依赖：`androidx.work:work-runtime-ktx`（订阅链接定时刷新）。无新增权限（`INTERNET` 已声明）；订阅仅限 HTTPS。后续 `add-webdav-note-sync` 为用户配置的 HTTP 网盘开启应用明文支持，ICS 仓库仍拒绝 HTTP 订阅和降级重定向。
 - 文档：`docs/ARCHITECTURE.md` 补充日程与停止触发器章节、数据库版本 3；`README.md` 因新增用户可见的自动开录行为而更新。`androidTest` 的 `DatabaseMigrationTest` 需覆盖 2→3 迁移。
 - 不在范围内：日程下课/运动传感器/关键词三种停止触发器的实现及关键词 DSL；系统日历（CalendarProvider）读取；云端日历账号授权；后台定时（无需用户进入应用）自动开录。
