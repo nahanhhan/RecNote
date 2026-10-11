@@ -1,0 +1,30 @@
+# schedule-folder-routing Specification
+
+## Purpose
+
+TBD - created by archiving change add-webdav-note-sync. Update Purpose after archive.
+
+## Requirements
+
+### Requirement: 日程名文件夹映射管理
+
+WebDAV 设置 SHALL 提供进入独立二级页面的入口，支持新增、修改和删除「ICS 日程名 → 文件夹」映射。日程名 SHALL 去除首尾空白后精确匹配且唯一。路径 MUST 相对配置 WebDAV 根目录解释，前导 `/` 不得跳到服务器根；MUST 拒绝点路径、反斜杠及控制字符。页面 SHALL 支持系统/顶栏返回，保存结果 SHALL 重启后保留。
+
+#### Scenario: 修改与删除
+
+- **WHEN** 用户把「高等数学」映射到 `/课程/数学` 后重新打开页面，随后修改或删除
+- **THEN** 映射保持且操作立即生效，重复名称或不合法路径显示原因
+
+### Requirement: 使用原始 ICS 日程名路由
+
+上传快照 MUST 使用录音保存的原始 `scheduleTitle` 匹配映射，MUST NOT 以用户改后的标题、`-1/-2` 编号或手填课程名猜测日程。匹配成功使用对应文件夹，未绑定日程、映射为空或匹配失败 MUST 使用配置的 WebDAV 根目录。映射路径 SHALL 在快照入队时确定。
+
+#### Scenario: 自动编号仍归同目录
+
+- **WHEN** 两条录音标题为「高等数学」与「高等数学-1」且原始日程名均为「高等数学」
+- **THEN** 两份笔记都保存到「高等数学」映射的文件夹
+
+#### Scenario: 未匹配时回落
+
+- **WHEN** 录音没有 ICS 日程绑定或对应名称没有映射
+- **THEN** 笔记独立文件夹直接放在 WebDAV 根目录

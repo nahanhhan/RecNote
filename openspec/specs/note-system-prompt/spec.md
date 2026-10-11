@@ -1,0 +1,63 @@
+# note-system-prompt Specification
+
+## Purpose
+
+TBD - created by archiving change add-editable-note-system-prompt. Update Purpose after archive.
+
+## Requirements
+
+### Requirement: 应用级系统提示词编辑
+
+设置 SHALL 提供名为「系统提示词」的按钮，点击直接打开独立编辑页。用户 SHALL 能编辑、保存、恢复默认草稿和预览展开结果；草稿旋转后 SHALL 保留，返回 MUST NOT 自动保存。保存配置 SHALL 本机持久化且适用于所有供应商预设的新笔记任务，不改变接口能力测试状态。默认模板 MUST 保留原有整理要求，用户修改后的内容 MUST 作为实际 system 消息完整发送，不追加隐藏的固定写作限制。
+
+#### Scenario: 编辑与重启
+
+- **WHEN** 用户保存自定义提示词后重启应用
+- **THEN** 编辑页显示保存的内容，新整理任务使用它
+
+#### Scenario: 恢复默认草稿
+
+- **WHEN** 用户点击恢复默认而尚未保存
+- **THEN** 草稿变为默认模板，既有配置仍保持，保存后才生效
+
+### Requirement: 日期时间与标题变量
+
+提示词 SHALL 支持精确形式 `{{datetime}}` 和 `{{title}}`。日期时间 MUST 使用任务开始时的系统区域日期格式、12/24 小时偏好和时区。标题 MUST 优先使用该录音绑定的原始 ICS 日程名，未绑定时使用用户输入的 title。替换 MUST 为单次字面量替换，MUST NOT 执行代码或递归展开变量值，未知变量 SHALL 原样保留。
+
+#### Scenario: 带编号的日程录音
+
+- **WHEN** 录音标题为「数学-1」，原始绑定日程名为「数学」
+- **THEN** `{{title}}` 替换为「数学」
+
+#### Scenario: 手动或导入标题
+
+- **WHEN** 录音未绑定日程且 title 为「会议录音」
+- **THEN** `{{title}}` 替换为「会议录音」，不采用 course 或另一正在进行的日程
+
+#### Scenario: 特殊字符与未知变量
+
+- **WHEN** 标题本身包含 `{{datetime}}`、美元符号或反斜杠，模板也包含 `{{other}}`
+- **THEN** 标题作为字面值插入、不再展开其内容，未知变量保持原文
+
+### Requirement: 任务提示词快照与迁移兼容
+
+新任务 MUST 在创建时冻结展开后的提示词，全部批次及恢复/确认请求 MUST 复用该快照。之后修改设置 MUST 只影响新任务。数据库升级 MUST 保留既有录音、笔记、任务及来源快照；旧任务未保存提示词时 MUST 使用原始 legacy 提示词继续，不套用新配置。
+
+#### Scenario: 中断后修改设置再恢复
+
+- **WHEN** 任务开始后中断，用户修改提示词后继续旧任务
+- **THEN** 旧任务继续使用开始时的系统提示词，新任务使用新设置
+
+### Requirement: 格式保存边界和测试隐私
+
+提示词 SHALL 保留用户输入的空白与换行，空白或超过 20,000 字符的模板 MUST 拒绝保存。笔记输出仍 MUST 满足现有结构和来源校验，工具说明 MUST NOT 重复固定写作风格要求。连接测试 MUST 使用合成资料和固定测试要求，MUST NOT 上传用户模板。Debug 请求日志 MUST 省略 system/developer 消息正文。
+
+#### Scenario: 保存无效模板
+
+- **WHEN** 用户保存空白或超长模板
+- **THEN** 显示原因且已有配置不变
+
+#### Scenario: 请求日志
+
+- **WHEN** Debug 开启且发送包含自定义提示词的整理请求
+- **THEN** 日志仅记录系统消息省略标记，不记录自定义提示词正文
