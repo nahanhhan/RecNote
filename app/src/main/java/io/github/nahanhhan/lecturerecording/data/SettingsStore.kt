@@ -11,6 +11,7 @@ import io.github.nahanhhan.lecture.core.CloudProvider
 import io.github.nahanhhan.lecture.core.protocolJson
 import io.github.nahanhhan.lecture.core.ScheduleFolder
 import io.github.nahanhhan.lecture.core.WebDavPaths
+import io.github.nahanhhan.lecture.core.NotePrompt
 import io.github.nahanhhan.lecturerecording.sync.WebDavClient
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -35,6 +36,10 @@ data class WebDavSettings(val baseUrl: String = "", val username: String = "", v
 
 class SettingsStore(context: Context) {
     private val preferences = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    /** 应用级模板，保留用户的空白和换行；缺失配置时使用可编辑默认值。 */
+    var noteSystemPrompt: String
+        get() = preferences.getString("note_system_prompt", NotePrompt.defaultTemplate)!!
+        set(value) { check(preferences.edit().putString("note_system_prompt", NotePrompt.validate(value)).commit()) { "系统提示词保存失败，请重试" } }
     /** 新增网盘凭据不进入日志；用户名和密码均只以加密密文落盘。 */
     fun webDav() = WebDavSettings(preferences.getString("webdav_url", "").orEmpty(),
         decrypt(preferences.getString("webdav_user_cipher", null)), decrypt(preferences.getString("webdav_password_cipher", null)),

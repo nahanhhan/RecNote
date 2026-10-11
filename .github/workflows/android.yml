@@ -37,7 +37,7 @@ jobs:
         run: |
           chmod +x gradlew
           python -m unittest discover -s scripts/tests
-          ./gradlew :core:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --console=plain
+          ./gradlew :core:test :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug :app:assembleDebug --console=plain
       - uses: actions/upload-artifact@v4
         with:
           name: lecture-recording-debug

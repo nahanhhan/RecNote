@@ -8,6 +8,8 @@
 
 数据库版本 2 通过非破坏性迁移追加课堂的 `sourceType` 与 `importReady`。旧记录默认仍为麦克风录音；不删除旧表、录音或笔记。版本 3 追加课堂的 `scheduleKey`、`scheduleTitle`（默认空串，表示未关联日程）并新建 `schedule_sources` 表，同样不改动已有数据。
 
+版本 4 仅追加 `jobs.systemPrompt`，默认空串表示升级前任务；新任务保存完整展开后的系统提示词，旧任务继续使用 legacy 提示词，保留所有已保存来源和笔记。
+
 ## 录音与恢复
 
 音频总样本数是唯一录音时钟。暂停不累加。照片按钮按下时读取样本数并记录独立的 Unix 拍摄日期。
@@ -49,6 +51,10 @@ WAV 每 30 秒换文件，每秒修正头部、同步文件并更新样本数。
 导入课堂类型固定为 `import`，界面不提供追加麦克风录音或照片，录音服务和拍照提交也检查类型。笔记快照对导入记录强制排除照片，转写未结束时不允许整理。
 
 ## 云端任务
+
+系统提示词模板为应用级 `SettingsStore.noteSystemPrompt`，缺失时显示 `NotePrompt.defaultTemplate`；用户可在设置二级页编辑、插入变量、预览、保存和恢复默认草稿。`{{datetime}}` 使用 Android 系统区域日期/时间 API 和系统时区，`{{title}}` 使用 `scheduleTitle`，无绑定时使用 `title`。替换为单次字面量操作，未知变量保持原文。
+
+`NotesService.createJob` 冻结展开文本到 `JobEntity.systemPrompt`，`runJob` 全部批次和 tool 回执请求复用该快照；设置修改不影响旧任务或接口能力测试状态。工具定义只限定保存结构与来源，写作风格由可编辑 system 消息指定。Debug 请求日志使用 `CloudRequests.loggable` 省略 system/developer 正文；连接测试使用固定合成材料与 legacy 提示词。
 
 预设默认生成“预设一”“预设二”，支持新增及重命名。旧配置复制到首个预设，密钥继续由 Keystore 加密；每个预设有独立配置和测试状态。修改名称不使通过状态失效，修改请求配置或重新测试会失效。
 

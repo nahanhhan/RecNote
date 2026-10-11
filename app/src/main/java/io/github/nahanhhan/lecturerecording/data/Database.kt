@@ -34,7 +34,8 @@ data class PhotoEntity(@PrimaryKey val id: String, val lessonId: String, val fil
 
 @Entity(tableName = "jobs", indices = [Index("lessonId")])
 data class JobEntity(@PrimaryKey val id: String, val lessonId: String, val revision: Int,
-    val snapshotJson: String, val status: String = "waiting", val error: String = "", val createdAt: Long)
+    val snapshotJson: String, val status: String = "waiting", val error: String = "", val createdAt: Long,
+    @ColumnInfo(defaultValue = "''") val systemPrompt: String = "")
 
 @Entity(tableName = "note_batches", primaryKeys = ["jobId", "batchId", "revision"])
 data class NoteBatchEntity(val jobId: String, val batchId: String, val revision: Int,
@@ -110,7 +111,7 @@ interface LectureDao {
 }
 
 @Database(entities = [LessonEntity::class, ChunkEntity::class, SegmentEntity::class, PhotoEntity::class,
-    JobEntity::class, NoteBatchEntity::class, EditedNoteEntity::class, ScheduleSourceEntity::class], version = 3, exportSchema = false)
+    JobEntity::class, NoteBatchEntity::class, EditedNoteEntity::class, ScheduleSourceEntity::class], version = 4, exportSchema = false)
 abstract class LectureDatabase : RoomDatabase() {
     abstract fun dao(): LectureDao
     companion object {
@@ -127,6 +128,11 @@ abstract class LectureDatabase : RoomDatabase() {
                 db.execSQL("CREATE TABLE IF NOT EXISTS schedule_sources (id TEXT NOT NULL, kind TEXT NOT NULL, name TEXT NOT NULL, " +
                     "url TEXT NOT NULL, lastSuccessAt INTEGER NOT NULL, lastError TEXT NOT NULL, etag TEXT NOT NULL, " +
                     "createdAt INTEGER NOT NULL, PRIMARY KEY(id))")
+            }
+        }
+        val MIGRATION_3_4 = object : androidx.room.migration.Migration(3, 4) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE jobs ADD COLUMN systemPrompt TEXT NOT NULL DEFAULT ''")
             }
         }
     }

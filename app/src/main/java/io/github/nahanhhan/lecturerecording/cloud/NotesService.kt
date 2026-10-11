@@ -74,13 +74,18 @@ class NotesService : Service() {
             graph.settings.glossary.split(',', '，', '\n').map { it.trim() }.filter { it.isNotBlank() }, segments, photos,
             includePhotos = includePhotos && lesson.sourceType != "import")
         check(batches.isNotEmpty()) { if (includePhotos) "没有可整理的文字或照片" else "没有可整理的文字；若需要整理照片，请在设置中开启并测试读图" }
-        val job = JobEntity(UUID.randomUUID().toString(), lessonId, lesson.revision, protocolJson.encodeToString(batches), createdAt = System.currentTimeMillis())
+        val createdAt = System.currentTimeMillis()
+        val systemPrompt = NotePrompt.render(graph.settings.noteSystemPrompt, SystemPromptTime.format(this, createdAt),
+            NotePrompt.title(lesson.scheduleTitle, lesson.title))
+        val job = JobEntity(UUID.randomUUID().toString(), lessonId, lesson.revision, protocolJson.encodeToString(batches),
+            createdAt = createdAt, systemPrompt = systemPrompt)
         graph.dao.putJob(job)
         AppLog.i("NotesService", "创建整理任务 job=${job.id} 批次=${batches.size}")
         job
     }
     private suspend fun runJob(job: JobEntity, settings: CloudSettings) {
         val batches = protocolJson.decodeFromString<List<Batch>>(job.snapshotJson)
+        val systemPrompt = NotePrompt.forJob(job.systemPrompt)
         check(settings.includePhotos || batches.all { it.photos.isEmpty() }) {
             "此任务包含照片，请开启并测试读图后继续，或发起新的文字整理任务"
         }
@@ -94,7 +99,7 @@ class NotesService : Service() {
             ServiceCompat.startForeground(this, 2, Notifications.build(this, "整理课堂笔记", "第 ${index + 1}/${batches.size} 批").build(), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
             AppLog.i("NotesService", "第 ${index + 1}/${batches.size} 批开始 batch=${batch.batchId}")
             val images = batch.photos.map { photo -> encodeImage(File(graph.lessonDir(job.lessonId), photo.filename)) }
-            val request = ChatProtocol.initial(settings.model, batch, images, definition, settings.strict)
+            val request = ChatProtocol.initial(settings.model, batch, images, definition, settings.strict, systemPrompt)
             var saved = graph.dao.batch(job.id, batch.batchId, job.revision)
             if (saved == null) {
                 val submission = ChatProtocol.submission(client.complete(request))

@@ -32,3 +32,5 @@
 core 单测覆盖变量替换、标题选择、特殊字符/非递归、未知变量、模板保存校验、自定义 system 消息和日志省略。Android 仪器测试覆盖设置重读、3→4 迁移、草稿/保存/默认恢复及系统时间格式；真机结果按 tasks.md 人工确认。端侧新增只读检查同批注册默认入口，OpenSpec 用官方 CLI 校验，编译、单测、lint 与 APK 由 GitHub CI 完成。
 
 日期格式依据：[Android DateFormat 官方说明](https://developer.android.com/reference/android/text/format/DateFormat)。
+
+同批其他调整：CI 增加 `:app:compileDebugAndroidTestKotlin`，确保新 UI/时间/迁移仪器测试源码可编译，不宣称已在设备执行；对应规则同步 `config.yaml`。新增 `prompt_contracts` 只读检查并注册默认入口，约束工具说明和请求日志边界。系统时间使用系统区域的独立 configuration context，避免应用单独语言设置影响系统格式。更新工具协议文档及两个离线请求示例中的工具说明。

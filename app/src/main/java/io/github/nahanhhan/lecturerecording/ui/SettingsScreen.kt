@@ -11,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
@@ -24,7 +25,7 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable fun SettingsScreen(activity: MainActivity, graph: AppGraph, onWebDavFolders: () -> Unit = {}) {
+@Composable fun SettingsScreen(activity: MainActivity, graph: AppGraph, onWebDavFolders: () -> Unit = {}, onSystemPrompt: () -> Unit = {}) {
     var glossary by remember { mutableStateOf(graph.settings.glossary) }
     var selectedModel by remember { mutableStateOf(graph.settings.modelId) }
     var source by remember { mutableStateOf(graph.settings.downloadSource) }
@@ -87,6 +88,7 @@ import java.time.format.DateTimeFormatter
         SchedulePanel(activity, graph)
         HorizontalDivider()
         CloudSettingsPanel(activity, graph)
+        OutlinedButton(onClick = onSystemPrompt, modifier = Modifier.fillMaxWidth().testTag("open-system-prompt")) { Text("系统提示词") }
         HorizontalDivider()
         WebDavSettingsPanel(graph, onWebDavFolders)
         HorizontalDivider()
