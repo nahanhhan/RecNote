@@ -6,8 +6,8 @@
 
 ## 2. 预设管理入口图标化
 
-- [ ] 2.1 在 [`CloudSettingsPanel`](../../app/src/main/java/io/github/nahanhhan/lecturerecording/ui/CloudSettingsPanel.kt) 将预设选择器 `Box` 与三个文字按钮 `Row` 合并为一个 `Row`（`Arrangement.spacedBy(4.dp)`）：选择器 `OutlinedButton` 以 `Modifier.weight(1f)` 占据行内剩余宽度（保留 `testTag("cloud-preset")` 与下拉菜单逻辑）；三个入口替换为 `IconButton` + `Icon(painterResource(...))`，`contentDescription` 分别为「新增预设」「重命名预设」「删除预设」；`enabled` 语义照搬（新增/重命名 `!busy`，删除 `!busy && presets.size > 1`）；`testTag` 照搬（`rename-preset`、`delete-preset`）并为新增入口补 `testTag("add-preset")`；点击回调、重命名/删除确认对话框、`message` 提示与 `presets`/`draft`/`presetDrafts`/`checks` 刷新序列保持不变。验证：CI 工程验证（编译、测试、lint）通过
-- [ ] 2.2 核对 [`ImportAndPresetIntegrationTest`](../../app/src/androidTest/java/io/github/nahanhhan/lecturerecording/ImportAndPresetIntegrationTest.kt) 在本变更下无需改动（入口锚定用的 `testTag` 与对话框文字均未变）；若编译期发现问题则做最小修复。验证：CI 工程验证（编译、测试、lint）通过，测试文件除必要修复外无改动
+- [x] 2.1 在 [`CloudSettingsPanel`](../../app/src/main/java/io/github/nahanhhan/lecturerecording/ui/CloudSettingsPanel.kt) 将预设选择器 `Box` 与三个文字按钮 `Row` 合并为一个 `Row`（`Arrangement.spacedBy(4.dp)`）：选择器 `OutlinedButton` 以 `Modifier.weight(1f)` 占据行内剩余宽度（保留 `testTag("cloud-preset")` 与下拉菜单逻辑）；三个入口替换为 `IconButton` + `Icon(painterResource(...))`，`contentDescription` 分别为「新增预设」「重命名预设」「删除预设」；`enabled` 语义照搬（新增/重命名 `!busy`，删除 `!busy && presets.size > 1`）；`testTag` 照搬（`rename-preset`、`delete-preset`）并为新增入口补 `testTag("add-preset")`；点击回调、重命名/删除确认对话框、`message` 提示与 `presets`/`draft`/`presetDrafts`/`checks` 刷新序列保持不变。验证：CI 工程验证（编译、测试、lint）通过
+- [x] 2.2 核对 [`ImportAndPresetIntegrationTest`](../../app/src/androidTest/java/io/github/nahanhhan/lecturerecording/ImportAndPresetIntegrationTest.kt) 在本变更下无需改动（入口锚定用的 `testTag` 与对话框文字均未变）；若编译期发现问题则做最小修复。验证：CI 工程验证（编译、测试、lint）通过，测试文件除必要修复外无改动
 
 ## 3. 集成核对与真机验收
 

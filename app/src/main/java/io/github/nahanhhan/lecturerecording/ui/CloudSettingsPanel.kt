@@ -6,12 +6,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import io.github.nahanhhan.lecturerecording.AppGraph
 import io.github.nahanhhan.lecturerecording.MainActivity
+import io.github.nahanhhan.lecturerecording.R
 import io.github.nahanhhan.lecturerecording.cloud.*
 import io.github.nahanhhan.lecturerecording.data.CloudSettings
 import io.github.nahanhhan.lecture.core.*
@@ -39,24 +42,24 @@ import kotlinx.coroutines.*
 
     Text("云端笔记整理", style = MaterialTheme.typography.titleLarge)
     Text("选择供应商并填写它提供的模型名称和密钥。课堂资料只在手动整理时发送；连接测试仅使用人工生成的材料。")
-    Box {
-        OutlinedButton(enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("cloud-preset"), onClick = { presetMenu = true }) {
-            Text("配置预设：${presets.firstOrNull { it.id == draft.presetId }?.name.orEmpty()} ▾")
-        }
-        DropdownMenu(expanded = presetMenu, onDismissRequest = { presetMenu = false }) {
-            presets.forEach { preset ->
-                DropdownMenuItem(text = { Text(preset.name) }, onClick = {
-                    presetDrafts[draft.presetId] = draft
-                    graph.settings.activatePreset(preset.id)
-                    draft = presetDrafts[preset.id] ?: graph.settings.cloud()
-                    drafts.clear(); checks = emptyList(); presetMenu = false
-                    message = "已切换到 ${preset.name}。修改配置后需保存并测试。"
-                })
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.weight(1f)) {
+            OutlinedButton(enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("cloud-preset"), onClick = { presetMenu = true }) {
+                Text("配置预设：${presets.firstOrNull { it.id == draft.presetId }?.name.orEmpty()} ▾")
+            }
+            DropdownMenu(expanded = presetMenu, onDismissRequest = { presetMenu = false }) {
+                presets.forEach { preset ->
+                    DropdownMenuItem(text = { Text(preset.name) }, onClick = {
+                        presetDrafts[draft.presetId] = draft
+                        graph.settings.activatePreset(preset.id)
+                        draft = presetDrafts[preset.id] ?: graph.settings.cloud()
+                        drafts.clear(); checks = emptyList(); presetMenu = false
+                        message = "已切换到 ${preset.name}。修改配置后需保存并测试。"
+                    })
+                }
             }
         }
-    }
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        TextButton(enabled = !busy, onClick = {
+        IconButton(enabled = !busy, modifier = Modifier.testTag("add-preset"), onClick = {
             try {
                 val added = graph.settings.addPreset()
                 presetDrafts[draft.presetId] = draft
@@ -64,13 +67,13 @@ import kotlinx.coroutines.*
                 presets = graph.settings.presets(); draft = graph.settings.cloud()
                 drafts.clear(); checks = emptyList(); message = "已新增预设，请填写并保存配置"
             } catch (error: Exception) { message = error.message.orEmpty() }
-        }) { Text("新增预设") }
-        TextButton(enabled = !busy, modifier = Modifier.testTag("rename-preset"), onClick = {
+        }) { Icon(painterResource(R.drawable.ic_add_24px), contentDescription = "新增预设") }
+        IconButton(enabled = !busy, modifier = Modifier.testTag("rename-preset"), onClick = {
             presetName = presets.first { it.id == draft.presetId }.name; renameError = ""; renaming = true
-        }) { Text("重命名预设") }
-        TextButton(enabled = !busy && presets.size > 1, modifier = Modifier.testTag("delete-preset"), onClick = {
+        }) { Icon(painterResource(R.drawable.ic_edit_24px), contentDescription = "重命名预设") }
+        IconButton(enabled = !busy && presets.size > 1, modifier = Modifier.testTag("delete-preset"), onClick = {
             deleting = true
-        }) { Text("删除预设") }
+        }) { Icon(painterResource(R.drawable.ic_delete_24px), contentDescription = "删除预设") }
     }
     if (renaming) AlertDialog(onDismissRequest = { renaming = false }, title = { Text("重命名预设") }, text = {
         Column {
