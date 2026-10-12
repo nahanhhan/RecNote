@@ -116,7 +116,7 @@ object PdfExporter {
                 color = ink; textSize = size; typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
             }
             return StaticLayout.Builder.obtain(text, 0, text.length, paint, width.coerceAtLeast(10))
-                .setIncludePad(false).setLineSpacing(3f, 1.15f).setBreakStrategy(Layout.BREAK_STRATEGY_HIGH_QUALITY).build()
+                .setIncludePad(false).setLineSpacing(3f, 1.15f).setBreakStrategy(android.graphics.text.LineBreaker.BREAK_STRATEGY_HIGH_QUALITY).build()
         }
         private fun endLine(layout: StaticLayout, start: Int, available: Float): Int {
             var end = start
