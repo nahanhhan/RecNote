@@ -80,7 +80,7 @@ object MathImages {
                     val html = """<!doctype html><html><head><meta name="viewport" content="width=511">
                         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src file: 'unsafe-inline'; font-src file:; script-src file: 'nonce-pdf';">
                         <link rel="stylesheet" href="file:///android_asset/vendor/katex/katex.min.css">
-                        <style>html,body{margin:0;padding:0;background:white}#math{display:inline-block;font-size:${if (formula.display) 14 else 12}px;color:#263c34}.katex-display{margin:0}</style>
+                        <style>html,body{margin:0;padding:0;background:white;font-size:0;line-height:0}#math{display:inline-block;vertical-align:top;line-height:1.2;font-size:${if (formula.display) 14 else 12}px;color:#263c34}.katex-display{margin:0}</style>
                         <script src="file:///android_asset/vendor/katex/katex.min.js"></script></head><body>
                         <span id="math"></span><script nonce="pdf">try{katex.render($expression,document.getElementById('math'),{displayMode:${formula.display},throwOnError:false,trust:false});}catch(e){PdfReady.failed();}</script>
                         </body></html>"""

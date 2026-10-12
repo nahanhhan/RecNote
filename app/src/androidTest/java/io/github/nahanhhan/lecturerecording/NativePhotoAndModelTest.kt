@@ -34,6 +34,7 @@ class NativePhotoAndModelTest {
             assertEquals(1, graph.dao.photos(id).size)
         } finally {
             graph.recording.value = RecordingState()
+            graph.dao.setStatus(id, "completed")
             graph.recordings.delete(listOf(id))
         }
     }

@@ -90,7 +90,7 @@ class CloudClient(private val settings: CloudSettings, private val client: OkHtt
                             }
                             if (json["error"] != null && json["error"] != JsonNull) {
                                 val code = (json["error"] as? JsonObject)?.get("code")?.jsonPrimitive?.intOrNull ?: 400
-                                error(CloudErrors.message(code, body, settings.key.trim()))
+                                throw CloudFailure(CloudErrors.message(code, body, settings.key.trim()), code == 429 || code >= 500)
                             }
                             AppLog.d("CloudClient") { "响应正文=$json" }
                             if (continuation.isActive) continuation.resume(json)

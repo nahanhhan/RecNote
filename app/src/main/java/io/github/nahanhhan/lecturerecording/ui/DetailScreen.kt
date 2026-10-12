@@ -260,7 +260,7 @@ import java.io.File
                             activity.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("application/zip")
                                 .putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "导出 PDF、Markdown 与照片"))
                         } catch (cancelled: CancellationException) { throw cancelled }
-                        } catch (exception: Exception) {
+                        catch (exception: Exception) {
                             AppLog.e("DetailScreen", "导出 Markdown 失败 lesson=$id", exception)
                             error = "导出失败：${exception.message}"
                         } finally { exporting = false }

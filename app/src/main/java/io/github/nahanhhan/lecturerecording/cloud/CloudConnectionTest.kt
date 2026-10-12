@@ -94,7 +94,7 @@ class CloudConnectionTest(private val context: Context, private val settings: Cl
             val choice = complete(ChatProtocol.followup(request, submission.assistant, receipt))
                 .getValue("choices").jsonArray.first().jsonObject
             check(choice["finish_reason"]?.jsonPrimitive?.content == "stop" &&
-                choice.getValue("message").jsonObject["tool_calls"] == null) { "服务没有确认笔记保存结果" }
+                choice.getValue("message").jsonObject["tool_calls"].let { it == null || it == JsonNull || (it is JsonArray && it.isEmpty()) }) { "服务没有确认笔记保存结果" }
         } finally { file.delete() }
     }
 }
