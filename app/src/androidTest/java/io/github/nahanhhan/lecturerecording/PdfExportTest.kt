@@ -3,6 +3,8 @@ package io.github.nahanhhan.lecturerecording
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
+import android.content.ContentValues
+import android.provider.MediaStore
 import android.os.ParcelFileDescriptor
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -29,8 +31,20 @@ class PdfExportTest {
                 "\n\n![合成照片](${photo.name})\n\n| 概念 | 解释 |\n| --- | --- |\n| 能量 | 合成说明 |\n\n" +
                 (1..100).joinToString("\n\n") { "第 $it 段：这是一份用于验证分页和中文字体的合成笔记。" }
             val output = PdfExporter.generate(app, markdown, "合成笔记", mapOf(photo.name to photo), File(folder, "notes.pdf"))
-            val evidence = requireNotNull(app.getExternalFilesDir("verification")).apply { mkdirs() }
-            output.copyTo(File(evidence, "synthetic-notes.pdf"), overwrite = true)
+            fun saveEvidence(name: String, mime: String, write: (java.io.OutputStream) -> Unit) {
+                val values = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+                    put(MediaStore.MediaColumns.MIME_TYPE, mime)
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/RecNote-CI-Verification/")
+                    put(MediaStore.MediaColumns.IS_PENDING, 1)
+                }
+                val uri = requireNotNull(app.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values))
+                try {
+                    requireNotNull(app.contentResolver.openOutputStream(uri)).use(write)
+                    app.contentResolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
+                } catch (error: Exception) { app.contentResolver.delete(uri, null, null); throw error }
+            }
+            saveEvidence("synthetic-notes.pdf", "application/pdf") { stream -> output.inputStream().use { it.copyTo(stream) } }
             ParcelFileDescriptor.open(output, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
                 PdfRenderer(descriptor).use { reader ->
                     assertTrue(reader.pageCount >= 2)
@@ -41,7 +55,7 @@ class PdfExportTest {
                             val pixels = IntArray(rendered.width * rendered.height)
                             rendered.getPixels(pixels, 0, rendered.width, 0, 0, rendered.width, rendered.height)
                             assertTrue("Each page must include visible material", pixels.any { (it and 0xffffff) < 0xe0e0e0 })
-                            File(evidence, "page-${index + 1}.png").outputStream().use { rendered.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                            saveEvidence("page-${index + 1}.png", "image/png") { rendered.compress(Bitmap.CompressFormat.PNG, 100, it) }
                         } finally { rendered.recycle() }
                     }
                 }

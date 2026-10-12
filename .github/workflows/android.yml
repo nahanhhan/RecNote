@@ -85,13 +85,7 @@ jobs:
           target: google_apis
           arch: x86_64
           disable-animations: true
-          script: |
-            set +e
-            ./gradlew :app:connectedDebugAndroidTest -PisolatedTest -PtestAbi=x86_64 -Pandroid.testInstrumentationRunnerArguments.class=io.github.nahanhhan.lecturerecording.PdfExportTest,io.github.nahanhhan.lecturerecording.NoteRecoveryTest,io.github.nahanhhan.lecturerecording.NativePhotoAndModelTest,io.github.nahanhhan.lecturerecording.WebDavSettingsTest,io.github.nahanhhan.lecturerecording.DatabaseMigrationTest --console=plain
-            runtime_result=$?
-            mkdir -p runtime-artifacts
-            adb pull /sdcard/Android/data/io.github.nahanhhan.lecturerecording.uitest/files/verification runtime-artifacts
-            exit "$runtime_result"
+          script: bash scripts/tests/run_android_runtime.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
