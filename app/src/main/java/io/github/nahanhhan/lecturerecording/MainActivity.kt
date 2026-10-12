@@ -49,6 +49,28 @@ import java.util.Locale
 class MainActivity : ComponentActivity() {
     val graph get() = (application as LectureApp).graph
     private var pendingRecording: Intent? = null
+    private var cameraResultReceived = false
+    private val nativeCamera = registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        cameraResultReceived = true
+        graph.scope.launch {
+            try { graph.nativePhotos.finish(success) }
+            catch (error: Exception) { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                Toast.makeText(this@MainActivity, error.message ?: "照片保存失败，请重试", Toast.LENGTH_LONG).show()
+            } }
+        }
+    }
+    fun takeNativePhoto(lessonId: String) {
+        cameraResultReceived = false
+        lifecycleScope.launch {
+            try {
+                val uri = graph.nativePhotos.begin(lessonId)
+                try { nativeCamera.launch(uri) }
+                catch (error: Exception) { graph.nativePhotos.finish(false); throw error }
+            } catch (error: Exception) {
+                Toast.makeText(this@MainActivity, error.message ?: "手机相机无法打开，请检查系统是否安装了可用的相机应用", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
     private val permissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         val intent = pendingRecording; pendingRecording = null
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED && intent != null) {
@@ -95,6 +117,14 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         // 机会性补刷过期订阅；自动开录判定只读本机缓存，不等待这次刷新。
         graph.scope.launch { graph.schedules.refreshStale(ScheduleRefreshWorker.STALE_MS) }
+    }
+    override fun onPostResume() {
+        super.onPostResume()
+        if (!cameraResultReceived) graph.scope.launch {
+            runCatching { graph.nativePhotos.recoverReturnedPhoto() }.onFailure {
+                AppLog.e("NativeCamera", "恢复相机照片失败", it)
+            }
+        }
     }
 }
 

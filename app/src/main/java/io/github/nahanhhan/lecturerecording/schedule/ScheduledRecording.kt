@@ -17,11 +17,12 @@ data class ScheduledStart(val occurrence: Occurrence, val title: String)
  * 没有进行中的录音或导入，且某出现项处于自动开录区间并且还没有关联课堂时，返回该出现项。
  */
 suspend fun AppGraph.autoStartCandidate(nowMs: Long): ScheduledStart? {
+    if (!settings.scheduleEnabled || !settings.scheduleAutoRecord) return null
     initialized.await()
     val occurrences = schedules.occurrencesAround(nowMs)
     if (occurrences.isEmpty()) return null
     return lessonOperations.withLock {
-        if (recording.value.lessonId != null || importing.value.lessonId != null) null
+        if (!settings.scheduleEnabled || !settings.scheduleAutoRecord || recording.value.lessonId != null || importing.value.lessonId != null) null
         else ScheduleResolver.resolveAutoStart(nowMs, occurrences, settings.autoStartWindow, dao.scheduleKeys().toSet())
             ?.let { ScheduledStart(it, it.title) }
     }
@@ -32,6 +33,7 @@ suspend fun AppGraph.autoStartCandidate(nowMs: Long): ScheduledStart? {
  * 返回 null 表示没有匹配日程，应沿用新建课堂对话框。
  */
 suspend fun AppGraph.activeScheduledStart(nowMs: Long): ScheduledStart? {
+    if (!settings.scheduleEnabled) return null
     initialized.await()
     val occurrences = schedules.occurrencesAround(nowMs)
     if (occurrences.isEmpty()) return null

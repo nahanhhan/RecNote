@@ -28,6 +28,7 @@ class WebDavSettingsTest {
         original.forEach { (key, value) -> when (value) {
             is String -> editor.putString(key, value)
             is Long -> editor.putLong(key, value)
+            is Boolean -> editor.putBoolean(key, value)
         } }
         editor.commit()
     }
@@ -53,5 +54,15 @@ class WebDavSettingsTest {
             Assert.fail("duplicate accepted")
         } catch (_: IllegalArgumentException) { }
         Assert.assertEquals("高等数学", store.webDavFolders.single().scheduleName)
+    }
+    @Test fun disablePreservesEncryptedAccountAndIncrementsRevision() {
+        val store = SettingsStore(app)
+        val enabled = store.saveWebDav(WebDavSettings("https://example.invalid/dav", "synthetic-user", "synthetic-password"))
+        Assert.assertTrue(enabled.active)
+        val disabled = store.saveWebDav(enabled.copy(enabled = false))
+        Assert.assertFalse(disabled.active); Assert.assertEquals(enabled.baseUrl, disabled.baseUrl)
+        Assert.assertEquals(enabled.username, disabled.username); Assert.assertEquals(enabled.password, disabled.password)
+        Assert.assertEquals(enabled.revision + 1, disabled.revision)
+        Assert.assertEquals(disabled, SettingsStore(app).webDav())
     }
 }

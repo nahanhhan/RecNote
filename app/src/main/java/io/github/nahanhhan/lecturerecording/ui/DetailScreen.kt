@@ -61,7 +61,6 @@ import java.io.File
     var uploadPreparing by remember(id) { mutableStateOf(false) }
     var noteSaving by remember(id) { mutableStateOf(false) }
     var noteStarting by remember(id) { mutableStateOf(false) }
-    var camera by rememberSaveable(id) { mutableStateOf(false) }
     var tab by remember { mutableStateOf(0) }
     var error by remember { mutableStateOf("") }
     var editSegment by remember { mutableStateOf<SegmentEntity?>(null) }
@@ -89,17 +88,6 @@ import java.io.File
         player.setMediaItems(chunks.map { MediaItem.fromUri(Uri.fromFile(File(it.path))) }, index,
             ((sample - chunks[index].startSample) * 1000 / 16000).coerceAtLeast(0))
         player.prepare(); player.play(); playing = true
-    }
-    val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) camera = true else {
-            AppLog.e("DetailScreen", "相机权限被拒绝")
-            error = "需要相机权限才能拍照"
-        }
-    }
-    if (camera) {
-        BackHandler { camera = false }
-        CameraScreen(activity, graph, id) { camera = false }
-        return
     }
     val current = lesson ?: return
     val active = recording.lessonId == id
@@ -138,10 +126,7 @@ import java.io.File
                         Button(onClick = { activity.startService(Intent(activity, RecordingService::class.java).setAction(
                             if (recording.status == "paused") RecordingService.RESUME else RecordingService.PAUSE)) }) { Text(if (recording.status == "paused") "继续" else "暂停") }
                         OutlinedButton(onClick = {
-                            if (ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                                AppLog.i("DetailScreen", "打开相机 lesson=$id")
-                                camera = true
-                            } else cameraPermission.launch(Manifest.permission.CAMERA)
+                            activity.takeNativePhoto(id)
                         }) { Text("拍照") }
                         OutlinedButton(onClick = { activity.startService(Intent(activity, RecordingService::class.java).setAction(RecordingService.STOP)) }) { Text("结束") }
                     }

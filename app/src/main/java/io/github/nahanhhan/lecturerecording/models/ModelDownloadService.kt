@@ -10,6 +10,7 @@ import androidx.core.app.ServiceCompat
 import io.github.nahanhhan.lecturerecording.*
 import io.github.nahanhhan.lecturerecording.logging.AppLog
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.*
 import okhttp3.*
 import io.github.nahanhhan.lecture.core.ModelArchiveExtractor
@@ -34,8 +35,15 @@ class ModelDownloadService : Service() {
         AppLog.i("ModelDownloadService", "开始下载 model=$modelId 下载源=$source")
         active = scope.launch {
             try {
-                check(graph.recording.value.lessonId == null) { "请在录音结束后安装模型" }
-                install(ModelCatalog.get(modelId), source)
+                graph.initialized.await()
+                graph.modelOperations.withLock {
+                    graph.lessonOperations.withLock {
+                        check(graph.recording.value.lessonId == null && graph.importing.value.lessonId == null) { "请在录音和音频处理结束后安装模型" }
+                        graph.modelBusy.value = true
+                    }
+                    try { install(ModelCatalog.get(modelId), source) }
+                    finally { graph.modelBusy.value = false }
+                }
                 graph.download.value = graph.download.value.copy(status = "installed")
                 AppLog.i("ModelDownloadService", "模型安装完成 model=$modelId")
             } catch (error: Exception) {

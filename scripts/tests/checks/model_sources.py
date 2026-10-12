@@ -24,6 +24,8 @@ EXPECTED = {
         "adaada88/sherpa-onnx-fire-red-asr2-ctc-zh-en-int8",
         "sherpa-onnx-fire-red-asr2-ctc-zh_en-int8-2026-02-25.tar.bz2",
     ),
+    "sensevoice": ("", "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2"),
+    "whisper_tiny": ("", "sherpa-onnx-whisper-tiny.tar.bz2"),
 }
 
 

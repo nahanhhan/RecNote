@@ -27,6 +27,8 @@ class AppGraph(val app: Application) {
     val schedules = ScheduleRepository(app, dao)
     val settings = SettingsStore(app)
     val recording = MutableStateFlow(RecordingState())
+    val captureClock = io.github.nahanhhan.lecture.core.CaptureClock()
+    val nativePhotos = io.github.nahanhhan.lecturerecording.photos.NativePhotoRepository(this)
     val cloudLessonId = MutableStateFlow<String?>(null)
     val noteExecution = Mutex()
     val notes = io.github.nahanhhan.lecturerecording.cloud.NotesRepository(this)
@@ -34,6 +36,9 @@ class AppGraph(val app: Application) {
     val lessonOperations = Mutex()
     val recordings = RecordingRepository(this)
     val download = MutableStateFlow(DownloadState())
+    val modelBusy = MutableStateFlow(false)
+    val modelOperations = Mutex()
+    val models = io.github.nahanhhan.lecturerecording.models.ModelManager(this)
     val webDav = WebDavSyncRepository(this)
     fun lessonDir(id: String) = File(app.filesDir, "lessons/$id").apply { mkdirs() }
     val initialized = scope.async {

@@ -30,6 +30,7 @@ class AudioImportService : Service() {
             try {
                 graph.initialized.await()
                 val lesson = graph.lessonOperations.withLock {
+                    check(!graph.modelBusy.value) { "请等待模型安装或删除结束" }
                     check(graph.recording.value.lessonId == null && graph.importing.value.lessonId == null) { "请等待当前录音或音频处理结束" }
                     val existing = intent?.getStringExtra("lesson_id")
                     val record = if (existing != null) requireNotNull(graph.dao.lesson(existing)) { "音频记录已删除" } else {

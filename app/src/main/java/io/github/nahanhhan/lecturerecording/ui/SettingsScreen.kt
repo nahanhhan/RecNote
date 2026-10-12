@@ -20,6 +20,7 @@ import io.github.nahanhhan.lecturerecording.*
 import io.github.nahanhhan.lecturerecording.logging.AppLog
 import io.github.nahanhhan.lecturerecording.models.*
 import io.github.nahanhhan.lecture.core.*
+import kotlinx.coroutines.*
 import java.io.File
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -34,10 +35,16 @@ import java.time.format.DateTimeFormatter
     var logMessage by remember { mutableStateOf("") }
     val download by graph.download.collectAsStateWithLifecycle()
     val recording by graph.recording.collectAsStateWithLifecycle()
+    val importing by graph.importing.collectAsStateWithLifecycle()
+    val modelBusy by graph.modelBusy.collectAsStateWithLifecycle()
+    var modelRefresh by remember { mutableStateOf(0) }
+    var deleteModel by remember { mutableStateOf<ModelSpec?>(null) }
+    var modelMessage by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("本地识别模型", style = MaterialTheme.typography.titleLarge)
         Text("模型下载完成后在手机本地转写。默认模型下载约 800 MB，安装后约 1.2 GB，请预留至少 3 GB 空间。若下载失败，请尝试切换下载源。", style = MaterialTheme.typography.bodyMedium)
-        val switchEnabled = recording.lessonId == null && download.status !in setOf("downloading", "verifying", "installing")
+        val switchEnabled = !modelBusy && recording.lessonId == null && importing.lessonId == null && download.status !in setOf("downloading", "verifying", "installing")
         SingleChoiceSegmentedButtonRow(Modifier.alpha(if (switchEnabled) 1f else 0.38f)) {
             SegmentedButton(
                 selected = source == DownloadSource.MODELSCOPE,
@@ -57,18 +64,23 @@ import java.time.format.DateTimeFormatter
             )
         }
         ModelCatalog.models.forEach { spec ->
-            val installed = File(activity.filesDir, "models/${spec.id}/installed.json").exists()
+            val installed = graph.models.installed(spec.id)
+            val occupied by produceState(0L, spec.id, download.status, modelRefresh) { value = graph.models.bytes(spec.id) }
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row {
-                        RadioButton(selected = selectedModel == spec.id, enabled = recording.lessonId == null, onClick = {
+                        RadioButton(selected = selectedModel == spec.id, enabled = switchEnabled, onClick = {
                             selectedModel = spec.id; graph.settings.modelId = spec.id
                         })
                         Column { Text(spec.label); Text(if (installed) "已安装" else "尚未安装", style = MaterialTheme.typography.bodySmall) }
                     }
-                    if (!installed) OutlinedButton(enabled = recording.lessonId == null && download.status !in setOf("downloading", "verifying", "installing"), onClick = {
+                    Text(spec.description, style = MaterialTheme.typography.bodySmall)
+                    Text("下载 ${spec.bytes / 1024 / 1024} MB · 本地占用 ${occupied / 1024 / 1024} MB", style = MaterialTheme.typography.bodySmall)
+                    if (!installed) OutlinedButton(enabled = switchEnabled && (source == DownloadSource.GITHUB || spec.modelscope.isNotBlank()), onClick = {
                         ContextCompat.startForegroundService(activity, Intent(activity, ModelDownloadService::class.java).putExtra("model", spec.id))
                     }) { Text("下载 / 继续下载") }
+                    if (!installed && source == DownloadSource.MODELSCOPE && spec.modelscope.isBlank()) Text("此模型请切换到 GitHub 下载源。", style = MaterialTheme.typography.bodySmall)
+                    if (occupied > 0) TextButton(enabled = switchEnabled, onClick = { deleteModel = spec }) { Text(if (installed) "删除模型" else "清理下载文件") }
                     if (download.modelId == spec.id && download.status != "idle") {
                         val percent = if (download.total > 0) ((download.bytes * 100 / download.total).coerceIn(0, 100)) else 0
                         Text(when (download.status) {
@@ -84,6 +96,7 @@ import java.time.format.DateTimeFormatter
                 }
             }
         }
+        if (modelMessage.isNotBlank()) Text(modelMessage)
         HorizontalDivider()
         SchedulePanel(activity, graph)
         HorizontalDivider()
@@ -99,7 +112,7 @@ import java.time.format.DateTimeFormatter
         Text("后台运行", style = MaterialTheme.typography.titleLarge)
         val power = activity.getSystemService(PowerManager::class.java)
         Text(if (power.isIgnoringBatteryOptimizations(activity.packageName)) "系统电池优化已放行" else "系统电池优化仍启用，请结合手机后台设置检查")
-        Text("录音期间请保留持续通知。在澎湃 OS / ColorOS 中允许后台运行，并检查省电模式。系统强制停止或关机后，再次打开可查看已保存资料。")
+        Text("录音和整理期间请保留持续通知，锁屏或切换应用后仍可继续。在澎湃 OS / ColorOS 中允许后台运行，并检查省电模式。整理中断后会自动恢复；手动暂停的任务需点击继续。")
         OutlinedButton(onClick = { runCatching { activity.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) } }) { Text("打开电池设置") }
         OutlinedButton(onClick = { activity.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${activity.packageName}"))) }) { Text("打开应用系统设置") }
         HorizontalDivider()
@@ -158,6 +171,16 @@ import java.time.format.DateTimeFormatter
         }
         if (logMessage.isNotBlank()) Text(logMessage)
         Text("版本 ${BuildConfig.VERSION_NAME} · 资料保存在本机", style = MaterialTheme.typography.bodySmall)
+    }
+    deleteModel?.let { model ->
+        AlertDialog(onDismissRequest = { deleteModel = null }, title = { Text("删除本地模型？") },
+            text = { Text("将删除 ${model.label} 的安装和下载文件，释放本机空间。已有录音和笔记保留，可随时重新下载。") },
+            confirmButton = { TextButton(enabled = !modelBusy, onClick = {
+                scope.launch {
+                    try { graph.models.delete(model.id); modelRefresh++; modelMessage = "模型文件已删除"; deleteModel = null }
+                    catch (error: Exception) { modelMessage = error.message ?: "模型删除失败" }
+                }
+            }) { Text("删除") } }, dismissButton = { TextButton(onClick = { deleteModel = null }) { Text("取消") } })
     }
 }
 

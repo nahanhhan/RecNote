@@ -6,6 +6,7 @@ import android.os.*
 import com.k2fsa.sherpa.onnx.*
 import io.github.nahanhhan.lecturerecording.logging.AppLog
 import io.github.nahanhhan.lecturerecording.recording.WavFile
+import io.github.nahanhhan.lecturerecording.models.ModelCatalog
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -27,18 +28,24 @@ class AsrService : Service() {
                         val audio = File(requireNotNull(data.getString("path"))).canonicalFile
                         require(audio.path.startsWith(File(filesDir, "lessons").canonicalPath + File.separator))
                         val modelId = data.getString("model") ?: "aed"
-                        require(modelId in setOf("aed", "ctc"))
+                        val spec = ModelCatalog.get(modelId)
                         val folder = File(filesDir, "models/$modelId")
                         require(File(folder, "installed.json").exists()) { "识别模型尚未准备好" }
                         AppLog.i("AsrService", "开始识别 model=$modelId 音频=${audio.name}")
                         if (loadedModel != modelId || recognizer == null) {
                             recognizer?.release()
                             AppLog.i("AsrService", "加载识别模型 model=$modelId")
-                            val model = OfflineModelConfig(tokens = File(folder, "tokens.txt").path,
+                            val model = OfflineModelConfig(tokens = File(folder, if (modelId == "whisper_tiny") "tiny-tokens.txt" else "tokens.txt").path,
                                 numThreads = 4, provider = "cpu", debug = false)
                             if (modelId == "aed") model.fireRedAsr = OfflineFireRedAsrModelConfig(
                                 File(folder, "encoder.int8.onnx").path, File(folder, "decoder.int8.onnx").path)
-                            else model.fireRedAsrCtc = OfflineFireRedAsrCtcModelConfig(File(folder, "model.int8.onnx").path)
+                            else when (modelId) {
+                                "ctc" -> model.fireRedAsrCtc = OfflineFireRedAsrCtcModelConfig(File(folder, "model.int8.onnx").path)
+                                "sensevoice" -> model.senseVoice = OfflineSenseVoiceModelConfig(File(folder, "model.int8.onnx").path)
+                                "whisper_tiny" -> model.whisper = OfflineWhisperModelConfig(
+                                    File(folder, "tiny-encoder.int8.onnx").path, File(folder, "tiny-decoder.int8.onnx").path, language = "")
+                            }
+                            check(spec.files.all { File(folder, it).isFile }) { "模型文件缺失，请重新安装" }
                             recognizer = OfflineRecognizer(config = OfflineRecognizerConfig(modelConfig = model))
                             loadedModel = modelId
                         }

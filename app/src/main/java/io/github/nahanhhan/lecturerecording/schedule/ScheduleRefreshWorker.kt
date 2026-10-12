@@ -9,11 +9,13 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import io.github.nahanhhan.lecturerecording.LectureApp
+import io.github.nahanhhan.lecturerecording.data.SettingsStore
 import java.util.concurrent.TimeUnit
 
 /** 定时刷新全部订阅；失败原因已记录在各来源上，任务本身不重试，等待下个周期。 */
 class ScheduleRefreshWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
+        if (!SettingsStore(applicationContext).scheduleEnabled) return Result.success()
         (applicationContext as LectureApp).graph.schedules.refreshAll()
         return Result.success()
     }
@@ -24,6 +26,10 @@ class ScheduleRefreshWorker(context: Context, params: WorkerParameters) : Corout
         const val STALE_MS = 6 * 60 * 60 * 1000L
 
         fun schedule(context: Context) {
+            if (!SettingsStore(context).scheduleEnabled) {
+                WorkManager.getInstance(context).cancelUniqueWork(NAME)
+                return
+            }
             val request = PeriodicWorkRequestBuilder<ScheduleRefreshWorker>(12, TimeUnit.HOURS)
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build()
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(NAME, ExistingPeriodicWorkPolicy.KEEP, request)

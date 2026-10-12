@@ -19,18 +19,18 @@ import java.util.UUID
 class WebDavSyncRepository(private val graph: AppGraph) {
     private val store = NoteUploadStore(File(graph.app.filesDir, "webdav"))
     val states = MutableStateFlow(store.all().associateBy { it.lessonId })
-    val enabled = MutableStateFlow(graph.settings.webDav().baseUrl.isNotBlank())
+    val enabled = MutableStateFlow(graph.settings.webDav().active)
     @Synchronized private fun refresh() { states.value = store.all().associateBy { it.lessonId } }
 
     suspend fun configure(value: WebDavSettings): WebDavSettings = withContext(Dispatchers.IO) {
         graph.lessonOperations.withLock {
             val old = graph.settings.webDav()
             val saved = graph.settings.saveWebDav(value)
-            enabled.value = saved.baseUrl.isNotBlank()
+            enabled.value = saved.active
             if (saved.revision != old.revision) {
                 WebDavUploadWorker.cancelAll(graph.app)
                 store.all().filter { it.status in setOf("pending", "uploading", "retrying") }.forEach {
-                    store.update(it.lessonId, it.packageId, "paused", if (saved.baseUrl.isBlank()) "云同步已关闭" else "网盘配置已改变，请重新上传")
+                    store.update(it.lessonId, it.packageId, "paused", if (!saved.active) "云同步已关闭" else "网盘配置已改变，请重新上传")
                 }
                 refresh()
             }
@@ -61,7 +61,7 @@ class WebDavSyncRepository(private val graph: AppGraph) {
         graph.initialized.await()
         graph.lessonOperations.withLock {
             val config = graph.settings.webDav()
-            check(config.baseUrl.isNotBlank()) { "请先在设置中启用 WebDAV 云同步" }
+            check(config.active) { "请先在设置中启用 WebDAV 云同步" }
             val lesson = requireNotNull(graph.dao.lesson(lessonId)) { "录音记录已删除" }
             check(lesson.status !in setOf("recording", "paused", "processing", "importing", "transcribing")) { "请等待录音与转写结束" }
             val job = graph.dao.jobs(lessonId).firstOrNull()
@@ -109,7 +109,7 @@ class WebDavSyncRepository(private val graph: AppGraph) {
                 if (graph.dao.lesson(ticket.lessonId) == null) {
                     WebDavUploadWorker.cancel(graph.app, ticket.lessonId); store.remove(ticket.lessonId)
                 } else if (ticket.status in setOf("pending", "uploading", "retrying")) {
-                    if (config.baseUrl.isNotBlank() && config.revision == ticket.configRevision)
+                    if (config.active && config.revision == ticket.configRevision)
                         WebDavUploadWorker.enqueue(graph.app, ticket.lessonId, replace = false)
                     else store.update(ticket.lessonId, ticket.packageId, "paused", "云同步已关闭或网盘配置已改变，请重新上传")
                 }
@@ -133,7 +133,7 @@ class WebDavSyncRepository(private val graph: AppGraph) {
             context.ensureActive()
             if (store.get(lessonId)?.packageId != ticket.packageId) throw CancellationException("上传快照已替换或删除")
             val now = graph.settings.webDav()
-            if (now.baseUrl.isBlank() || now.revision != ticket.configRevision) throw UploadPaused()
+            if (!now.active || now.revision != ticket.configRevision) throw UploadPaused()
         }
         try {
             checkCurrent()
@@ -156,7 +156,7 @@ class WebDavSyncRepository(private val graph: AppGraph) {
         catch (error: Exception) {
             context.ensureActive()
             val now = graph.settings.webDav()
-            if (now.baseUrl.isBlank() || now.revision != ticket.configRevision) {
+            if (!now.active || now.revision != ticket.configRevision) {
                 store.update(lessonId, ticket.packageId, "paused", "网盘配置已改变或云同步已关闭，请重新上传"); refresh(); return true
             }
             val retry = error is IOException && (error !is WebDavFailure || error.retryable) && ticket.attempts + 1 < 5

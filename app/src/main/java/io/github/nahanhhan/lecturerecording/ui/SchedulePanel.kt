@@ -25,6 +25,8 @@ import kotlin.math.roundToInt
     val scope = rememberCoroutineScope()
     val sources by graph.schedules.sources.collectAsStateWithLifecycle(initialValue = emptyList())
     var window by remember { mutableStateOf(graph.settings.autoStartWindow) }
+    var enabled by remember { mutableStateOf(graph.settings.scheduleEnabled) }
+    var autoRecord by remember { mutableStateOf(graph.settings.scheduleAutoRecord) }
     var url by remember { mutableStateOf("") }
     var message by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -58,12 +60,21 @@ import kotlin.math.roundToInt
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("课程日程", style = MaterialTheme.typography.titleLarge)
-        Text("导入或订阅 .ics 日程后，从桌面进入应用时若正处于某节课的开录区间，会自动开始录音并以日程名命名。", style = MaterialTheme.typography.bodyMedium)
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Text("启用日程功能", Modifier.weight(1f))
+            Switch(enabled, { enabled = it; graph.schedules.setEnabled(it) })
+        }
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Text("按日程自动开始录音", Modifier.weight(1f))
+            Switch(autoRecord, { autoRecord = it; graph.settings.scheduleAutoRecord = it }, enabled = enabled)
+        }
+        Text("关闭日程保留来源和配置，停止新匹配及订阅刷新。关闭自动录音后仍可手动开始，并按匹配日程命名。", style = MaterialTheme.typography.bodyMedium)
 
         Text("自动开录区间", style = MaterialTheme.typography.titleMedium)
         Text(describeWindow(window))
         // 滑块横轴为「开始后的分钟数」：左端 +5（开始前 5 分钟），右端 -10（开始后 10 分钟）。
         RangeSlider(
+            enabled = enabled && autoRecord,
             value = (-window.upperMin).toFloat()..(-window.lowerMin).toFloat(),
             onValueChange = { range ->
                 window = AutoStartWindow.clamped(-range.endInclusive.roundToInt(), -range.start.roundToInt())

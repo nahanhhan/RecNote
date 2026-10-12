@@ -84,6 +84,7 @@ class RecordingService : Service() {
     private suspend fun runRecording(intent: Intent) = coroutineScope {
         val existingId = intent.getStringExtra("lesson_id")
         val lesson = graph.lessonOperations.withLock {
+            check(!graph.modelBusy.value) { "请等待模型安装或删除结束" }
             check(graph.importing.value.lessonId == null) { "请等待音频导入和转写结束" }
             val value = if (existingId != null) requireNotNull(graph.dao.lesson(existingId)) { "录音记录已删除" } else LessonEntity(
                 UUID.randomUUID().toString(), intent.getStringExtra("title")?.ifBlank { "课堂录音" } ?: "课堂录音",
@@ -92,6 +93,8 @@ class RecordingService : Service() {
             check(value.sourceType != "import") { "导入音频不能追加麦克风录音，请使用音频导入流程继续转写" }
             lessonId = value.id
             graph.dao.putLesson(value.copy(status = if (intent.action == DRAIN) "processing" else "recording", error = ""))
+            graph.captureClock.clear()
+            graph.captureClock.record(System.currentTimeMillis(), value.samples)
             graph.recording.value = RecordingState(value.id, if (intent.action == DRAIN) "processing" else "recording", value.samples)
             value
         }
@@ -225,6 +228,7 @@ class RecordingService : Service() {
                         chunk!!.append(buffer, count)
                         val start = clock.samples; clock.advance(count)
                         graph.recording.update { it.copy(samples = clock.samples) }
+                        graph.captureClock.record(System.currentTimeMillis(), clock.samples)
                         segmenter.accept(buffer.copyOf(count), start).forEach { submit(it) }
                         if (clock.samples - lastCheckpoint >= 16000) {
                             chunk!!.checkpoint(); graph.dao.setChunkSamples(chunkRecord!!.id, chunk!!.samples)

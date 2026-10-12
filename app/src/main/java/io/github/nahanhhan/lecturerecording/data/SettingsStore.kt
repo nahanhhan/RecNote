@@ -30,12 +30,19 @@ data class CloudSettings(val baseUrl: String, val model: String, val key: String
 }
 @Serializable data class CloudPreset(val id: String, val name: String)
 
-data class WebDavSettings(val baseUrl: String = "", val username: String = "", val password: String = "", val revision: Long = 0) {
-    override fun toString() = "WebDavSettings(enabled=${baseUrl.isNotBlank()}, revision=$revision, credentials=***)"
+data class WebDavSettings(val baseUrl: String = "", val username: String = "", val password: String = "", val revision: Long = 0, val enabled: Boolean = true) {
+    val active get() = enabled && baseUrl.isNotBlank()
+    override fun toString() = "WebDavSettings(enabled=$active, revision=$revision, credentials=***)"
 }
 
 class SettingsStore(context: Context) {
     private val preferences = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    var scheduleEnabled: Boolean
+        get() = preferences.getBoolean("schedule_enabled", true)
+        set(value) { preferences.edit().putBoolean("schedule_enabled", value).apply() }
+    var scheduleAutoRecord: Boolean
+        get() = preferences.getBoolean("schedule_auto_record", true)
+        set(value) { preferences.edit().putBoolean("schedule_auto_record", value).apply() }
     /** 应用级模板，保留用户的空白和换行；缺失配置时使用可编辑默认值。 */
     var noteSystemPrompt: String
         get() = preferences.getString("note_system_prompt", NotePrompt.defaultTemplate)!!
@@ -43,17 +50,17 @@ class SettingsStore(context: Context) {
     /** 新增网盘凭据不进入日志；用户名和密码均只以加密密文落盘。 */
     fun webDav() = WebDavSettings(preferences.getString("webdav_url", "").orEmpty(),
         decrypt(preferences.getString("webdav_user_cipher", null)), decrypt(preferences.getString("webdav_password_cipher", null)),
-        preferences.getLong("webdav_revision", 0))
+        preferences.getLong("webdav_revision", 0), preferences.getBoolean("webdav_enabled", preferences.getString("webdav_url", "").orEmpty().isNotBlank()))
 
     fun saveWebDav(value: WebDavSettings): WebDavSettings {
         val old = webDav()
         val normalized = value.copy(baseUrl = if (value.baseUrl.isBlank()) "" else WebDavClient.normalize(value.baseUrl), username = value.username.trim())
         require(!normalized.username.contains(':') && normalized.username.none { it.isISOControl() }) { "用户名不能包含冒号或控制字符" }
-        val changed = old.baseUrl != normalized.baseUrl || old.username != normalized.username || old.password != normalized.password
+        val changed = old.baseUrl != normalized.baseUrl || old.username != normalized.username || old.password != normalized.password || old.enabled != normalized.enabled
         val saved = normalized.copy(revision = if (changed) old.revision + 1 else old.revision)
         check(preferences.edit().putString("webdav_url", saved.baseUrl)
             .putString("webdav_user_cipher", encrypt(saved.username)).putString("webdav_password_cipher", encrypt(saved.password))
-            .putLong("webdav_revision", saved.revision).commit()) { "网盘设置保存失败，请重试" }
+            .putBoolean("webdav_enabled", saved.enabled).putLong("webdav_revision", saved.revision).commit()) { "网盘设置保存失败，请重试" }
         return saved
     }
 

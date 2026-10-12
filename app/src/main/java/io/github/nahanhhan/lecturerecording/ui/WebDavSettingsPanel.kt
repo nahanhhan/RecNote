@@ -24,7 +24,11 @@ import kotlinx.coroutines.*
     val scope = rememberCoroutineScope()
     val uploads by graph.webDav.states.collectAsStateWithLifecycle()
     Text("WebDAV 云同步", style = MaterialTheme.typography.titleLarge)
-    Text("保存网盘地址后，生成的笔记会自动上传。地址留空并保存即可关闭。", style = MaterialTheme.typography.bodyMedium)
+    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+        Text("启用网盘同步", Modifier.weight(1f))
+        Switch(draft.enabled, { draft = draft.copy(enabled = it); message = "请保存设置使开关生效" }, enabled = !busy, modifier = Modifier.testTag("webdav-enabled"))
+    }
+    Text("启用并保存地址后，PDF、Markdown 和照片会自动上传。关闭开关并保存可暂停同步，地址和账号仍然保留。", style = MaterialTheme.typography.bodyMedium)
     OutlinedTextField(draft.baseUrl, { draft = draft.copy(baseUrl = it); message = "" },
         enabled = !busy, singleLine = true, label = { Text("WebDAV 地址") },
         placeholder = { Text("http://127.0.0.1:5244/dav") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
@@ -42,7 +46,7 @@ import kotlinx.coroutines.*
             scope.launch {
                 try {
                     saved = graph.webDav.configure(draft); draft = saved
-                    message = if (saved.baseUrl.isBlank()) "云同步已关闭" else "已保存，之后生成的笔记将自动上传"
+                    message = if (!saved.active) "云同步已关闭，配置已保留" else "已保存，之后生成的 PDF、Markdown 和照片将自动上传"
                 } catch (cancelled: CancellationException) { throw cancelled }
                 catch (error: Exception) { failed = true; message = if (error is IllegalArgumentException || error is IllegalStateException) error.message.orEmpty() else "保存失败，请重试" }
                 finally { busy = false }

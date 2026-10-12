@@ -33,6 +33,12 @@ import java.util.concurrent.TimeUnit
  * 日志只记录订阅链接的主机名，不记录路径与查询串。
  */
 class ScheduleRepository(private val app: Application, private val dao: LectureDao) {
+    private val settings = io.github.nahanhhan.lecturerecording.data.SettingsStore(app)
+    fun setEnabled(value: Boolean) {
+        settings.scheduleEnabled = value
+        if (!value) client.dispatcher.cancelAll()
+        ScheduleRefreshWorker.schedule(app)
+    }
     private val directory = File(app.filesDir, "schedules")
     private val calendars = ScheduleCalendars()
     private val lock = Mutex()
@@ -77,11 +83,13 @@ class ScheduleRepository(private val app: Application, private val dao: LectureD
 
     /** 刷新一个订阅来源；返回是否成功。失败时记录原因并保留旧日程。文件来源无需刷新。 */
     suspend fun refresh(id: String): Boolean = withContext(Dispatchers.IO) {
+        if (!settings.scheduleEnabled) return@withContext false
         val source = dao.scheduleSource(id) ?: return@withContext false
         if (source.kind != "url") return@withContext true
         val host = ScheduleUrl.hostOf(source.url)
         try {
             val fetched = fetch(source.url, source.etag)
+            if (!settings.scheduleEnabled) return@withContext false
             val now = System.currentTimeMillis()
             lock.withLock {
                 val current = dao.scheduleSource(id) ?: return@withContext false
@@ -109,11 +117,13 @@ class ScheduleRepository(private val app: Application, private val dao: LectureD
 
     /** 刷新距上次成功超过 [maxAgeMs]（或从未成功）的订阅。 */
     suspend fun refreshStale(maxAgeMs: Long) {
+        if (!settings.scheduleEnabled) return
         val now = System.currentTimeMillis()
         dao.scheduleSources().filter { it.kind == "url" && now - it.lastSuccessAt > maxAgeMs }.forEach { refresh(it.id) }
     }
 
     suspend fun refreshAll() {
+        if (!settings.scheduleEnabled) return
         dao.scheduleSources().filter { it.kind == "url" }.forEach { refresh(it.id) }
     }
 
