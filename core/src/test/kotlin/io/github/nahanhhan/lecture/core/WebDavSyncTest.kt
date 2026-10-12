@@ -45,6 +45,17 @@ class WebDavSyncTest {
         assertNull(store.update("lesson", "new", "failed"))
         assertTrue(store.all().isEmpty())
     }
+    @Test fun pdfFormatVersionKeepsRetryPathStableAndPreparingMetadataSurvivesRestart() = withDirectory { root ->
+        val first = WebDavPaths.noteDirectory(1000, "synthetic", "lesson", "text", emptyList(), "pdf-native-1")
+        assertEquals(first, WebDavPaths.noteDirectory(1000, "synthetic", "lesson", "text", emptyList(), "pdf-native-1"))
+        assertNotEquals(first, WebDavPaths.noteDirectory(1000, "synthetic", "lesson", "text", emptyList(), "pdf-native-2"))
+        val store = NoteUploadStore(root)
+        val ticket = NoteUpload("lesson", "snapshot", 1, first, listOf("notes.pdf", "notes.md"), "preparing",
+            documentTitle = "synthetic", sourceJobId = "job")
+        store.put(ticket)
+        assertEquals(ticket, NoteUploadStore(root).get("lesson"))
+        assertEquals("notes.md", ticket.files.last())
+    }
 
     @Test fun deletionRemovesOnlyItsOwnSnapshotsAndBrokenStateDoesNotCrashRecovery() = withDirectory { root ->
         val store = NoteUploadStore(root)

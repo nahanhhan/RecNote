@@ -3,6 +3,8 @@ package io.github.nahanhhan.lecturerecording.sync
 import io.github.nahanhhan.lecturerecording.AppGraph
 import io.github.nahanhhan.lecturerecording.data.WebDavSettings
 import io.github.nahanhhan.lecturerecording.export.NotesRenderer
+import io.github.nahanhhan.lecturerecording.export.PdfExporter
+import io.github.nahanhhan.lecturerecording.export.NoteSnapshot
 import io.github.nahanhhan.lecturerecording.logging.AppLog
 import io.github.nahanhhan.lecture.core.*
 import kotlinx.coroutines.*
@@ -29,7 +31,7 @@ class WebDavSyncRepository(private val graph: AppGraph) {
             enabled.value = saved.active
             if (saved.revision != old.revision) {
                 WebDavUploadWorker.cancelAll(graph.app)
-                store.all().filter { it.status in setOf("pending", "uploading", "retrying") }.forEach {
+                store.all().filter { it.status in setOf("preparing", "pending", "uploading", "retrying") }.forEach {
                     store.update(it.lessonId, it.packageId, "paused", if (!saved.active) "云同步已关闭" else "网盘配置已改变，请重新上传")
                 }
                 refresh()
@@ -48,8 +50,9 @@ class WebDavSyncRepository(private val graph: AppGraph) {
                 graph.lessonOperations.withLock {
                     if (graph.dao.lesson(lessonId) != null && enabled.value) {
                         val failed = NoteUpload(lessonId, UUID.randomUUID().toString(), graph.settings.webDav().revision,
-                            "", listOf("notes.md"), "failed", "准备上传失败，请检查本机空间和照片后重试")
+                            "", listOf("notes.pdf", "notes.md"), "failed", "准备上传失败，请检查本机空间和照片后重试")
                         store.put(failed); refresh()
+                        graph.dao.jobs(lessonId).firstOrNull()?.let { graph.dao.pendingSyncRevision(it.id, -1) }
                     }
                 }
             }
@@ -67,6 +70,7 @@ class WebDavSyncRepository(private val graph: AppGraph) {
             val job = graph.dao.jobs(lessonId).firstOrNull()
             check(job?.status == "completed") { "请先完成笔记整理再上传" }
             val completedJob = requireNotNull(job)
+            check(completedJob.revision == lesson.revision) { "原稿已变化，请重新整理后上传" }
             val batches = graph.dao.batches(completedJob.id)
             check(batches.isNotEmpty() && batches.all { it.confirmed }) { "笔记尚未完整保存，请先继续整理" }
             val notes = batches.map { protocolJson.decodeFromString<Notes>(it.notesJson) }
@@ -87,11 +91,13 @@ class WebDavSyncRepository(private val graph: AppGraph) {
                 File(folder, "notes.md").writeText(markdown, Charsets.UTF_8)
                 sourcePhotos.forEach { it.copyTo(File(folder, it.name), overwrite = false) }
                 val copiedPhotos = sourcePhotos.map { File(folder, it.name) }
-                val noteFolder = WebDavPaths.noteDirectory(lesson.createdAt, lesson.title, lesson.id, markdown, copiedPhotos)
+                val noteFolder = WebDavPaths.noteDirectory(lesson.createdAt, lesson.title, lesson.id, markdown, copiedPhotos, formatVersion = "pdf-native-1")
                 val route = WebDavPaths.route(lesson.scheduleTitle, graph.settings.webDavFolders)
                 val ticket = NoteUpload(lessonId, packageId, config.revision,
-                    listOf(route, noteFolder).filter { it.isNotEmpty() }.joinToString("/"), copiedPhotos.map { it.name } + "notes.md")
+                    listOf(route, noteFolder).filter { it.isNotEmpty() }.joinToString("/"), copiedPhotos.map { it.name } + listOf("notes.pdf", "notes.md"),
+                    status = "preparing", documentTitle = lesson.title, sourceJobId = completedJob.id)
                 store.put(ticket); refresh()
+                graph.dao.pendingSyncRevision(completedJob.id, -1)
                 WebDavUploadWorker.enqueue(graph.app, lessonId, replace = true)
                 store.discardPackagesExcept(lessonId, packageId)
                 AppLog.i("WebDavSync", "笔记上传已排队 lesson=$lessonId")
@@ -108,13 +114,21 @@ class WebDavSyncRepository(private val graph: AppGraph) {
             store.all().forEach { ticket ->
                 if (graph.dao.lesson(ticket.lessonId) == null) {
                     WebDavUploadWorker.cancel(graph.app, ticket.lessonId); store.remove(ticket.lessonId)
-                } else if (ticket.status in setOf("pending", "uploading", "retrying")) {
+                } else if (ticket.status in setOf("preparing", "pending", "uploading", "retrying")) {
                     if (config.active && config.revision == ticket.configRevision)
                         WebDavUploadWorker.enqueue(graph.app, ticket.lessonId, replace = false)
                     else store.update(ticket.lessonId, ticket.packageId, "paused", "云同步已关闭或网盘配置已改变，请重新上传")
                 }
             }
             refresh()
+        }
+        val config = graph.settings.webDav()
+        graph.dao.pendingNoteSync().forEach { job ->
+            val existing = store.get(job.lessonId)
+            if (existing?.sourceJobId == job.id) graph.dao.pendingSyncRevision(job.id, -1)
+            else if (config.active && config.revision == job.pendingSyncRevision &&
+                graph.dao.jobs(job.lessonId).firstOrNull()?.id == job.id) enqueueAfterNotes(job.lessonId)
+            else graph.dao.pendingSyncRevision(job.id, -1)
         }
     }
 
@@ -126,7 +140,7 @@ class WebDavSyncRepository(private val graph: AppGraph) {
 
     suspend fun upload(lessonId: String): Boolean {
         val ticket = store.get(lessonId) ?: return true
-        if (ticket.status !in setOf("pending", "uploading", "retrying")) return true
+        if (ticket.status !in setOf("preparing", "pending", "uploading", "retrying")) return true
         val context = currentCoroutineContext()
         val config = graph.settings.webDav()
         fun checkCurrent() {
@@ -137,6 +151,16 @@ class WebDavSyncRepository(private val graph: AppGraph) {
         }
         try {
             checkCurrent()
+            val folder = store.packageDirectory(lessonId, ticket.packageId)
+            if ("notes.pdf" in ticket.files && !File(folder, "notes.pdf").exists()) {
+                try {
+                    val markdown = File(folder, "notes.md").readText()
+                    val photos = ticket.files.filter { it != "notes.md" && it != "notes.pdf" }.associateWith { File(folder, it) }
+                    PdfExporter.generate(graph.app, markdown, ticket.documentTitle.ifBlank { "课堂笔记" }, photos, File(folder, "notes.pdf"))
+                    checkCurrent()
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { throw WebDavFailure(0, "PDF 生成失败，本地笔记已保留；请检查系统 WebView、本机空间后重试上传") }
+            }
             if (ticket.attempts >= 5) {
                 store.update(lessonId, ticket.packageId, "failed", "多次上传失败，请检查网盘后手动重试"); refresh(); return true
             }

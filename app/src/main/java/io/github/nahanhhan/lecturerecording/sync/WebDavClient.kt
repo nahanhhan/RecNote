@@ -64,7 +64,7 @@ class WebDavClient(address: String, private val username: String = "", private v
 
     suspend fun put(directory: String, file: File) {
         require(file.isFile) { "上传快照缺失，请重新上传笔记" }
-        val media = if (file.name == "notes.md") "text/markdown; charset=utf-8" else "image/jpeg"
+        val media = when (file.name) { "notes.md" -> "text/markdown; charset=utf-8"; "notes.pdf" -> "application/pdf"; else -> "image/jpeg" }
         request(url(directory, file.name), "PUT", file.asRequestBody(media.toMediaType())).use {
             if (it.code !in setOf(200, 201, 204)) throw failure(it.code)
         }

@@ -51,10 +51,11 @@ object WebDavPaths {
     }
 
     /** UTC 日期和内容摘要保证手动重试、设备时区变化不会产生新目的路径。 */
-    fun noteDirectory(createdAt: Long, title: String, lessonId: String, markdown: String, photos: List<File>): String {
+    fun noteDirectory(createdAt: Long, title: String, lessonId: String, markdown: String, photos: List<File>, formatVersion: String = ""): String {
         require(lessonId.matches(Regex("[A-Za-z0-9_-]{1,120}"))) { "录音编号无效" }
         val digest = MessageDigest.getInstance("SHA-256")
         digest.update(markdown.toByteArray(Charsets.UTF_8))
+        if (formatVersion.isNotEmpty()) { digest.update(0.toByte()); digest.update(formatVersion.toByteArray(Charsets.UTF_8)) }
         photos.sortedBy { it.name }.forEach { photo ->
             filename(photo.name)
             require(photo.isFile) { "笔记照片缺失，请检查本地资料" }
@@ -76,7 +77,8 @@ object WebDavPaths {
 @Serializable data class NoteUpload(
     val lessonId: String, val packageId: String, val configRevision: Long,
     val directory: String, val files: List<String>, val status: String = "pending",
-    val error: String = "", val updatedAt: Long = System.currentTimeMillis(), val attempts: Int = 0
+    val error: String = "", val updatedAt: Long = System.currentTimeMillis(), val attempts: Int = 0,
+    val documentTitle: String = "", val sourceJobId: String = ""
 )
 
 /** 私有文件队列；状态原子替换，过期 worker 只能更新自己仍持有的快照。 */

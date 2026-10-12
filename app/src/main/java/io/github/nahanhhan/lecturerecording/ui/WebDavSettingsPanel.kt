@@ -70,7 +70,7 @@ import kotlinx.coroutines.*
     if (message.isNotBlank()) Text(message, color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
     OutlinedButton(onClick = onFolders, modifier = Modifier.fillMaxWidth().testTag("webdav-folders")) { Text("管理日程文件夹") }
     Text("按 ICS 日程名保存到对应文件夹；没有对应关系时放到网盘根目录。", style = MaterialTheme.typography.bodySmall)
-    val pending = uploads.values.count { it.status in setOf("pending", "uploading", "retrying") }
+    val pending = uploads.values.count { it.status in setOf("preparing", "pending", "uploading", "retrying") }
     val errors = uploads.values.count { it.status == "failed" || it.status == "paused" }
     if (pending > 0 || errors > 0) Text("待上传 $pending 份 · 需处理 $errors 份，可在笔记详情查看。", style = MaterialTheme.typography.bodySmall)
 }

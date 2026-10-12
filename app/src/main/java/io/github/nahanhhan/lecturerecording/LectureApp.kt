@@ -22,7 +22,7 @@ data class ImportState(val lessonId: String? = null, val status: String = "idle"
 class AppGraph(val app: Application) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val database = Room.databaseBuilder(app, LectureDatabase::class.java, "lectures.db")
-        .addMigrations(LectureDatabase.MIGRATION_1_2, LectureDatabase.MIGRATION_2_3, LectureDatabase.MIGRATION_3_4, LectureDatabase.MIGRATION_4_5).build()
+        .addMigrations(LectureDatabase.MIGRATION_1_2, LectureDatabase.MIGRATION_2_3, LectureDatabase.MIGRATION_3_4, LectureDatabase.MIGRATION_4_5, LectureDatabase.MIGRATION_5_6).build()
     val dao = database.dao()
     val schedules = ScheduleRepository(app, dao)
     val settings = SettingsStore(app)
@@ -65,6 +65,7 @@ class LectureApp : Application() {
         AppLog.init(this)
         // ASR process owns only its recognizer; it must not run main-process recovery.
         if (!getProcessName().endsWith(":asr")) {
+            android.webkit.WebView.enableSlowWholeDocumentDraw()
             graph = AppGraph(this)
             ScheduleRefreshWorker.schedule(this)
             graph.scope.launch { graph.initialized.await(); graph.notes.restore(); graph.webDav.restore() }

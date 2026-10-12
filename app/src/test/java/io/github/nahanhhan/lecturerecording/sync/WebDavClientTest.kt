@@ -85,6 +85,21 @@ class WebDavClientTest {
         }
         assertEquals("/dav/a%252Fb/notes.md", WebDavClient("https://example.com/dav").url("/a%2Fb", "notes.md").encodedPath)
     }
+    @Test fun pdfAndPhotosUploadBeforeMarkdownWithCorrectMediaTypes() = withServer { server -> runBlocking {
+        val directory = Files.createTempDirectory("synthetic-pdf-sync").toFile()
+        try {
+            val files = listOf("ast_000001000_001.jpg" to "image/jpeg", "notes.pdf" to "application/pdf", "notes.md" to "text/markdown")
+            val client = WebDavClient(server.url("/dav/").toString())
+            files.forEach { (name, media) ->
+                server.enqueue(MockResponse().setResponseCode(201))
+                val file = java.io.File(directory, name).apply { writeText("synthetic $name") }
+                client.put("course/note", file)
+                val request = server.takeRequest()
+                assertEquals("/dav/course/note/$name", request.path)
+                assertTrue(request.getHeader("Content-Type")!!.startsWith(media))
+            }
+        } finally { directory.deleteRecursively() }
+    } }
 
     private suspend fun failure(block: suspend () -> Unit): WebDavFailure {
         try { block() } catch (error: WebDavFailure) { return error }

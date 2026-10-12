@@ -61,8 +61,21 @@ import java.io.File
     var uploadPreparing by remember(id) { mutableStateOf(false) }
     var noteSaving by remember(id) { mutableStateOf(false) }
     var noteStarting by remember(id) { mutableStateOf(false) }
-    var tab by remember { mutableStateOf(0) }
+    var exporting by remember(id) { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
+    var pendingPdf by rememberSaveable(id) { mutableStateOf<String?>(null) }
+    val pdfDestination = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
+        val path = pendingPdf; pendingPdf = null
+        if (uri != null && path != null) graph.scope.launch {
+            try {
+                withContext(Dispatchers.IO) { activity.contentResolver.openOutputStream(uri)?.use { output ->
+                    File(path).inputStream().use { it.copyTo(output) }
+                } ?: error("无法写入所选位置") }
+                error = "PDF 已保存"
+            } catch (exception: Exception) { error = exception.message ?: "PDF 保存失败，请重试" }
+        }
+    }
+    var tab by remember { mutableStateOf(0) }
     var editSegment by remember { mutableStateOf<SegmentEntity?>(null) }
     var editNote by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -167,6 +180,7 @@ import java.io.File
             if (markdown.isNotBlank()) {
                 val upload = uploadStates[id]
                 val uploadLabel = when (upload?.status) {
+                    "preparing" -> "正在生成 PDF"
                     "pending" -> "等待网络上传"; "uploading" -> "正在上传"
                     "retrying" -> "等待自动重试"; "completed" -> "已上传"
                     "failed" -> "上传失败"; "paused" -> "已暂停"
@@ -175,7 +189,7 @@ import java.io.File
                 Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                     Text("网盘：$uploadLabel", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                     if (syncEnabled) TextButton(enabled = !uploadPreparing && !cloudRunning && jobs.firstOrNull()?.status == "completed" &&
-                        upload?.status !in setOf("pending", "uploading", "retrying"), onClick = {
+                        upload?.status !in setOf("preparing", "pending", "uploading", "retrying"), onClick = {
                         uploadPreparing = true
                         scope.launch {
                             try { graph.webDav.enqueue(id); error = "" }
@@ -226,23 +240,33 @@ import java.io.File
             else {
                 Row(Modifier.padding(horizontal = 12.dp)) {
                     TextButton(enabled = !cloudRunning, onClick = { editNote = true }) { Text("编辑笔记") }
-                    TextButton(onClick = {
+                    TextButton(enabled = !exporting, onClick = { scope.launch {
+                        exporting = true
+                        try {
                         AppLog.i("DetailScreen", "保存 PDF lesson=$id 标题=${current.title}")
-                        Exporter.print(activity, graph.lessonDir(id), markdown, current.title)
-                    }) { Text("保存 PDF") }
-                    TextButton(onClick = { scope.launch {
+                        val file = Exporter.pdf(graph, id, markdown)
+                        pendingPdf = file.path
+                        pdfDestination.launch(current.title.replace(Regex("[\\\\/:*?\"<>|]"), "_").take(100).ifBlank { "课堂笔记" } + ".pdf")
+                        } catch (cancelled: CancellationException) { throw cancelled }
+                        catch (exception: Exception) { error = exception.message ?: "PDF 导出失败" }
+                        finally { exporting = false }
+                    } }) { Text("导出 PDF") }
+                    TextButton(enabled = !exporting, onClick = { scope.launch {
+                        exporting = true
                         try {
                             AppLog.i("DetailScreen", "导出 Markdown lesson=$id")
                             val file = Exporter.markdownZip(graph, id, markdown)
                             val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.files", file)
                             activity.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("application/zip")
-                                .putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "导出 Markdown 与照片"))
+                                .putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "导出 PDF、Markdown 与照片"))
+                        } catch (cancelled: CancellationException) { throw cancelled }
                         } catch (exception: Exception) {
                             AppLog.e("DetailScreen", "导出 Markdown 失败 lesson=$id", exception)
                             error = "导出失败：${exception.message}"
-                        }
-                    } }) { Text("导出 Markdown") }
+                        } finally { exporting = false }
+                    } }) { Text("打包导出") }
                 }
+                if (exporting) LinearProgressIndicator(Modifier.fillMaxWidth())
                 val web = remember { WebView(activity).apply { Exporter.configureWeb(this, graph.lessonDir(id)) } }
                 DisposableEffect(web) { onDispose { web.destroy() } }
                 AndroidView(factory = { web }, update = {
@@ -270,7 +294,7 @@ import java.io.File
         }, confirmButton = { TextButton(enabled = !noteSaving, onClick = {
             AppLog.i("DetailScreen", "编辑笔记保存 lesson=$id")
             noteSaving = true
-            scope.launch {
+            graph.scope.launch {
                 try {
                     withContext(Dispatchers.IO) { graph.lessonOperations.withLock {
                         check(graph.dao.lesson(id) != null) { "录音记录已删除" }

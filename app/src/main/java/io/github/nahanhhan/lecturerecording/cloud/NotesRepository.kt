@@ -46,7 +46,10 @@ class NotesRepository(private val graph: AppGraph) {
         withContext(Dispatchers.IO) { WorkManager.getInstance(graph.app).cancelUniqueWork(workName(jobId)).result.get(30, TimeUnit.SECONDS) }
     }
     suspend fun restore() {
-        graph.dao.automaticJobs().forEach { schedule(it.id) }
+        graph.dao.automaticJobs().forEach {
+            if (graph.dao.lesson(it.lessonId)?.revision == it.revision) schedule(it.id)
+            else graph.dao.jobStatus(it.id, "failed", "课堂原稿已变化，请重新整理")
+        }
     }
     fun remove(lessonId: String, jobs: List<JobEntity>) {
         jobs.filter { it.lessonId == lessonId }.forEach { WorkManager.getInstance(graph.app).cancelUniqueWork(workName(it.id)) }
@@ -198,6 +201,8 @@ class NotesRepository(private val graph: AppGraph) {
             check(graph.dao.job(job.id)?.status == "running") { "整理已暂停" }
             check(graph.dao.lesson(job.lessonId)?.revision == job.revision) { "课堂原稿已变化，请重新整理" }
             graph.dao.jobStatus(job.id, "completed")
+            val sync = graph.settings.webDav()
+            if (sync.active) graph.dao.pendingSyncRevision(job.id, sync.revision)
             graph.dao.clearEditedNote(job.lessonId)
         }
         AppLog.i("NotesService", "整理任务完成 job=${job.id}")

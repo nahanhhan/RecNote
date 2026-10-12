@@ -43,7 +43,7 @@ class DatabaseMigrationTest {
             db.version = 1
         }
         val migrated = Room.databaseBuilder(app, LectureDatabase::class.java, name)
-            .addMigrations(LectureDatabase.MIGRATION_1_2, LectureDatabase.MIGRATION_2_3, LectureDatabase.MIGRATION_3_4, LectureDatabase.MIGRATION_4_5).build()
+            .addMigrations(LectureDatabase.MIGRATION_1_2, LectureDatabase.MIGRATION_2_3, LectureDatabase.MIGRATION_3_4, LectureDatabase.MIGRATION_4_5, LectureDatabase.MIGRATION_5_6).build()
         try {
             val saved = migrated.dao().lesson("old")!!
             assertEquals("Saved Recording", saved.title); assertEquals(32000L, saved.samples)
@@ -83,7 +83,7 @@ class DatabaseMigrationTest {
             db.version = 2
         }
         val migrated = Room.databaseBuilder(app, LectureDatabase::class.java, name)
-            .addMigrations(LectureDatabase.MIGRATION_2_3, LectureDatabase.MIGRATION_3_4, LectureDatabase.MIGRATION_4_5).build()
+            .addMigrations(LectureDatabase.MIGRATION_2_3, LectureDatabase.MIGRATION_3_4, LectureDatabase.MIGRATION_4_5, LectureDatabase.MIGRATION_5_6).build()
         try {
             val saved = migrated.dao().lesson("old")!!
             assertEquals("import", saved.sourceType); assertTrue(saved.importReady)

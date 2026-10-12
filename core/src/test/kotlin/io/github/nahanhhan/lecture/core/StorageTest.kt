@@ -81,12 +81,15 @@ class StorageTest {
         File(lessons, "one").mkdir(); File(lessons, "one/audio.wav").writeText("recorded")
         val exports = File(root, "exports").apply { mkdirs() }
         File(exports, "lecture_one.zip").writeText("exported")
+        File(exports, "lecture_one/snapshot").mkdirs()
+        File(exports, "lecture_one/snapshot/notes.pdf").writeText("synthetic PDF")
         val journal = DeletionJournal(lessons, File(root, "trash"), exports)
         journal.prepare(listOf("one"))
         val restarted = DeletionJournal(lessons, File(root, "trash"), exports)
         restarted.restore(restarted.pending().single(), setOf("one"))
         assertEquals("recorded", File(lessons, "one/audio.wav").readText())
         assertEquals("exported", File(exports, "lecture_one.zip").readText())
+        assertEquals("synthetic PDF", File(exports, "lecture_one/snapshot/notes.pdf").readText())
         assertTrue(restarted.pending().isEmpty())
     }
     @Test fun crashAfterDatabaseCommitFinishesFileCleanup() = fixture { root ->

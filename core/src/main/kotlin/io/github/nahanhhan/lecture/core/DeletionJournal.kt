@@ -42,6 +42,8 @@ class DeletionJournal(private val lessons: File, private val trash: File, privat
                 if (original.exists()) check(original.renameTo(child(directory, id))) { "录音文件移动失败，请重试" }
                 val exported = child(exports, "lecture_$id.zip")
                 if (exported.exists()) check(exported.renameTo(child(directory, "export_$id.zip"))) { "导出文件清理失败，请重试" }
+                val snapshots = child(exports, "lecture_$id")
+                if (snapshots.exists()) check(snapshots.renameTo(child(directory, "snapshots_$id"))) { "导出快照清理失败，请重试" }
             }
         } catch (error: Exception) {
             runCatching { restore(entry, ids.toSet()) }.onFailure { error.addSuppressed(it) }
@@ -68,6 +70,13 @@ class DeletionJournal(private val lessons: File, private val trash: File, privat
                 check(saved.renameTo(original)) { "录音文件恢复失败" }
             }
             val savedExport = child(directory, "export_$id.zip")
+            val savedSnapshots = child(directory, "snapshots_$id")
+            if (savedSnapshots.exists()) {
+                val originalSnapshots = child(exports, "lecture_$id")
+                check(!originalSnapshots.exists()) { "恢复导出快照时发现冲突" }
+                check(exports.isDirectory || exports.mkdirs())
+                check(savedSnapshots.renameTo(originalSnapshots)) { "导出快照恢复失败" }
+            }
             if (savedExport.exists()) {
                 val originalExport = child(exports, "lecture_$id.zip")
                 check(!originalExport.exists()) { "恢复导出文件时发现冲突" }

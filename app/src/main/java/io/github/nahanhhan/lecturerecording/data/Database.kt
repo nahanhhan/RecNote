@@ -36,7 +36,8 @@ data class PhotoEntity(@PrimaryKey val id: String, val lessonId: String, val fil
 data class JobEntity(@PrimaryKey val id: String, val lessonId: String, val revision: Int,
     val snapshotJson: String, val status: String = "waiting", val error: String = "", val createdAt: Long,
     @ColumnInfo(defaultValue = "''") val systemPrompt: String = "",
-    @ColumnInfo(defaultValue = "0") val attempts: Int = 0)
+    @ColumnInfo(defaultValue = "0") val attempts: Int = 0,
+    @ColumnInfo(defaultValue = "-1") val pendingSyncRevision: Long = -1)
 
 data class NoteStatusRow(val lessonId: String, val status: String, val revision: Int)
 
@@ -99,6 +100,8 @@ interface LectureDao {
     @Query("SELECT j.lessonId,j.status,j.revision FROM jobs j WHERE j.id=(SELECT id FROM jobs WHERE lessonId=j.lessonId ORDER BY createdAt DESC,id DESC LIMIT 1)") fun observeNoteStatuses(): Flow<List<NoteStatusRow>>
     @Query("UPDATE jobs SET snapshotJson=:snapshot WHERE id=:id") suspend fun updateJobPlan(id: String, snapshot: String)
     @Query("UPDATE jobs SET attempts=:attempts WHERE id=:id") suspend fun jobAttempts(id: String, attempts: Int)
+    @Query("UPDATE jobs SET pendingSyncRevision=:revision WHERE id=:id") suspend fun pendingSyncRevision(id: String, revision: Long)
+    @Query("SELECT * FROM jobs WHERE status='completed' AND pendingSyncRevision>=0") suspend fun pendingNoteSync(): List<JobEntity>
     @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insertBatch(batch: NoteBatchEntity): Long
     @Query("SELECT * FROM note_batches WHERE jobId=:jobId AND batchId=:batchId AND revision=:revision") suspend fun batch(jobId: String, batchId: String, revision: Int): NoteBatchEntity?
     @Query("SELECT * FROM note_batches WHERE jobId=:jobId ORDER BY batchId") suspend fun batches(jobId: String): List<NoteBatchEntity>
@@ -118,10 +121,15 @@ interface LectureDao {
 }
 
 @Database(entities = [LessonEntity::class, ChunkEntity::class, SegmentEntity::class, PhotoEntity::class,
-    JobEntity::class, NoteBatchEntity::class, EditedNoteEntity::class, ScheduleSourceEntity::class], version = 5, exportSchema = false)
+    JobEntity::class, NoteBatchEntity::class, EditedNoteEntity::class, ScheduleSourceEntity::class], version = 6, exportSchema = false)
 abstract class LectureDatabase : RoomDatabase() {
     abstract fun dao(): LectureDao
     companion object {
+        val MIGRATION_5_6 = object : androidx.room.migration.Migration(5, 6) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE jobs ADD COLUMN pendingSyncRevision INTEGER NOT NULL DEFAULT -1")
+            }
+        }
         val MIGRATION_4_5 = object : androidx.room.migration.Migration(4, 5) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE jobs ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")
