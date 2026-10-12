@@ -116,7 +116,12 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         // 机会性补刷过期订阅；自动开录判定只读本机缓存，不等待这次刷新。
-        graph.scope.launch { graph.schedules.refreshStale(ScheduleRefreshWorker.STALE_MS) }
+        graph.scope.launch {
+            graph.initialized.await()
+            graph.notes.restore()
+            graph.webDav.restore()
+            graph.schedules.refreshStale(ScheduleRefreshWorker.STALE_MS)
+        }
     }
     override fun onPostResume() {
         super.onPostResume()
