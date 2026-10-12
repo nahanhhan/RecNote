@@ -59,7 +59,11 @@ class NativePhotoRepository(private val graph: AppGraph) {
                 BitmapFactory.decodeFile(source.path, bounds)
                 check(source.length() in 1..100L * 1024 * 1024 && bounds.outWidth > 0 && bounds.outHeight > 0) { "相机未返回有效照片，请重试" }
                 val now = System.currentTimeMillis()
-                val exifTime = runCatching { ExifInterface(source).dateTimeOriginal }.getOrNull()
+                val exifTime = runCatching {
+                    val exif = ExifInterface(source)
+                    CaptureTime.epoch(exif.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL),
+                        exif.getAttribute(ExifInterface.TAG_OFFSET_TIME_ORIGINAL), exif.getAttribute(ExifInterface.TAG_SUBSEC_TIME_ORIGINAL))
+                }.getOrNull()
                 val capturedAt = exifTime?.takeIf { it in (capture.startedAt - 1000)..now }?.coerceAtLeast(capture.startedAt) ?: capture.startedAt
                 val limit = if (graph.recording.value.lessonId == lesson.id) graph.recording.value.samples else lesson.samples
                 val samples = if (graph.recording.value.lessonId == lesson.id)
