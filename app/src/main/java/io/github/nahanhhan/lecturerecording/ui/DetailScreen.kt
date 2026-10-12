@@ -60,6 +60,7 @@ import java.io.File
     val syncEnabled by graph.webDav.enabled.collectAsStateWithLifecycle()
     var uploadPreparing by remember(id) { mutableStateOf(false) }
     var noteSaving by remember(id) { mutableStateOf(false) }
+    var noteStarting by remember(id) { mutableStateOf(false) }
     var camera by rememberSaveable(id) { mutableStateOf(false) }
     var tab by remember { mutableStateOf(0) }
     var error by remember { mutableStateOf("") }
@@ -104,7 +105,15 @@ import java.io.File
     val active = recording.lessonId == id
     val importActive = importing.lessonId == id
     val imported = current.sourceType == "import"
-    val cloudRunning = jobs.any { it.status == "running" }
+    val cloudRunning = jobs.any { it.status in NoteProcessing.automatic && it.revision == current.revision }
+    fun startNotes(resume: String? = null) {
+        noteStarting = true
+        graph.scope.launch {
+            try { graph.notes.enqueue(id, resume); error = "" }
+            catch (exception: Exception) { error = exception.message ?: "无法开始整理，请检查设置" }
+            finally { noteStarting = false }
+        }
+    }
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row {
@@ -114,6 +123,7 @@ import java.io.File
                 }
             }
             Text("${formatTime((if (active) recording.samples else current.samples) * 1000 / 16000)} · ${statusLabel(if (active) recording.status else current.status)}")
+            Text(NoteProcessing.label(jobs.firstOrNull()?.status, jobs.firstOrNull()?.revision, current.revision), style = MaterialTheme.typography.labelLarge)
             if (current.error.isNotBlank()) Text(current.error, color = MaterialTheme.colorScheme.error)
             if (imported) Text("导入音频只整理文字，不追加录音或拍照。", style = MaterialTheme.typography.bodySmall)
             if (importActive) {
@@ -150,18 +160,19 @@ import java.io.File
                         }) { Text(if (current.importReady) "继续转写" else "继续导入") }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(enabled = !cloudRunning && !importActive && current.status !in setOf("recording", "paused", "processing", "importing", "transcribing") &&
+                    Button(enabled = !noteStarting && !cloudRunning && !importActive && current.status !in setOf("recording", "paused", "processing", "importing", "transcribing") &&
                         (!imported || (current.importReady && segments.isNotEmpty() && segments.all { it.status == "ready" })), onClick = {
                         if (!graph.settings.cloudTested) error = "请先在设置中配置并测试云端接口"
                         else {
                             AppLog.i("DetailScreen", "发起整理 lesson=$id")
-                            ContextCompat.startForegroundService(activity, Intent(activity, NotesService::class.java).putExtra("lesson_id", id))
+                            startNotes()
                         }
                     }) { Text("整理笔记") }
-                    if (jobs.firstOrNull()?.status == "waiting") OutlinedButton(onClick = {
+                    if (jobs.firstOrNull()?.status in setOf("paused", "failed") && jobs.first().revision == current.revision) OutlinedButton(enabled = !noteStarting, onClick = {
                         AppLog.i("DetailScreen", "继续整理 job=${jobs.first().id}")
-                        ContextCompat.startForegroundService(activity, Intent(activity, NotesService::class.java).putExtra("job_id", jobs.first().id))
+                        startNotes(jobs.first().id)
                     }) { Text("继续整理") }
+                    if (cloudRunning) OutlinedButton(onClick = { graph.scope.launch { graph.notes.pause(jobs.first { it.status in NoteProcessing.automatic }.id) } }) { Text("暂停整理") }
                 }
             }
             jobs.firstOrNull()?.let { job ->

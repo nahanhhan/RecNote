@@ -22,12 +22,14 @@ data class ImportState(val lessonId: String? = null, val status: String = "idle"
 class AppGraph(val app: Application) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val database = Room.databaseBuilder(app, LectureDatabase::class.java, "lectures.db")
-        .addMigrations(LectureDatabase.MIGRATION_1_2, LectureDatabase.MIGRATION_2_3, LectureDatabase.MIGRATION_3_4).build()
+        .addMigrations(LectureDatabase.MIGRATION_1_2, LectureDatabase.MIGRATION_2_3, LectureDatabase.MIGRATION_3_4, LectureDatabase.MIGRATION_4_5).build()
     val dao = database.dao()
     val schedules = ScheduleRepository(app, dao)
     val settings = SettingsStore(app)
     val recording = MutableStateFlow(RecordingState())
     val cloudLessonId = MutableStateFlow<String?>(null)
+    val noteExecution = Mutex()
+    val notes = io.github.nahanhhan.lecturerecording.cloud.NotesRepository(this)
     val importing = MutableStateFlow(ImportState())
     val lessonOperations = Mutex()
     val recordings = RecordingRepository(this)
@@ -60,7 +62,7 @@ class LectureApp : Application() {
         if (!getProcessName().endsWith(":asr")) {
             graph = AppGraph(this)
             ScheduleRefreshWorker.schedule(this)
-            graph.scope.launch { graph.initialized.await(); graph.webDav.restore() }
+            graph.scope.launch { graph.initialized.await(); graph.notes.restore(); graph.webDav.restore() }
         }
     }
 }

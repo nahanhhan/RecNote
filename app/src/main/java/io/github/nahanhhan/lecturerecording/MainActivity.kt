@@ -40,6 +40,7 @@ import io.github.nahanhhan.lecturerecording.schedule.autoStartCandidate
 import io.github.nahanhhan.lecturerecording.schedule.scheduledRecordingIntent
 import io.github.nahanhhan.lecturerecording.ui.*
 import io.github.nahanhhan.lecture.core.formatTime
+import io.github.nahanhhan.lecture.core.NoteProcessing
 import io.github.nahanhhan.lecturerecording.importing.AudioImportService
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -118,6 +119,7 @@ class MainActivity : ComponentActivity() {
     val cloudLessonId by graph.cloudLessonId.collectAsStateWithLifecycle()
     val busyRecords by graph.dao.observeBusyLessonIds().collectAsStateWithLifecycle(initialValue = emptyList())
     val lessons by graph.dao.observeLessons().collectAsStateWithLifecycle(initialValue = emptyList())
+    val noteStates by graph.dao.observeNoteStatuses().collectAsStateWithLifecycle(initialValue = emptyList())
     val unavailable = busyRecords.toSet() + listOfNotNull(recording.lessonId, cloudLessonId, importing.lessonId)
     val audioPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -221,6 +223,8 @@ class MainActivity : ComponentActivity() {
                                 }
                                 Text(listOf(lesson.course, SimpleDateFormat("MM月dd日 HH:mm", Locale.CHINA).format(lesson.createdAt)).filter { it.isNotBlank() }.joinToString(" · "))
                                 Text("${formatTime(lesson.samples * 1000 / 16000)} · ${statusLabel(lesson.status)}", color = MaterialTheme.colorScheme.primary)
+                                val note = noteStates.firstOrNull { it.lessonId == lesson.id }
+                                Text(NoteProcessing.label(note?.status, note?.revision, lesson.revision), style = MaterialTheme.typography.labelLarge)
                                 if (lesson.sourceType == "import") Text("导入音频 · 仅文字笔记", style = MaterialTheme.typography.bodySmall)
                             }
                         }

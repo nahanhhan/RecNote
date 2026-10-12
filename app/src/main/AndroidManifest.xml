@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.INTERNET" />
@@ -21,6 +21,8 @@
         <service android:name=".importing.AudioImportService" android:exported="false" android:foregroundServiceType="dataSync" android:stopWithTask="false" />
         <service android:name=".asr.AsrService" android:exported="false" android:process=":asr" />
         <service android:name=".cloud.NotesService" android:exported="false" android:foregroundServiceType="dataSync" android:stopWithTask="false" />
+        <service android:name="androidx.work.impl.foreground.SystemForegroundService" android:foregroundServiceType="dataSync" tools:node="merge" />
+        <receiver android:name=".cloud.PauseNotesReceiver" android:exported="false" />
         <service android:name=".models.ModelDownloadService" android:exported="false" android:foregroundServiceType="dataSync" android:stopWithTask="false" />
         <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.files" android:exported="false" android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />

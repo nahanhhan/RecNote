@@ -59,6 +59,13 @@ class CloudClientTest {
         }
         Assert.assertEquals(0, server.requestCount)
     }
+    @Test fun transientHttpIsRetryableButCredentialsAndBadParametersAreNot() = runBlocking {
+        for (code in listOf(429, 503, 401, 400)) {
+            server.enqueue(MockResponse().setResponseCode(code).setBody("""{"error":{"message":"synthetic failure"}}"""))
+            try { CloudClient(settings, client).complete(buildJsonObject { }); Assert.fail("must fail") }
+            catch (error: CloudFailure) { Assert.assertEquals(code == 429 || code == 503, error.retryable) }
+        }
+    }
     @Test fun goUsesRealAppIdentityAndStableSessionForEveryRequest() = runBlocking {
         val local = client.newBuilder().dns(object : okhttp3.Dns {
             override fun lookup(hostname: String) = listOf(java.net.InetAddress.getByName("127.0.0.1"))

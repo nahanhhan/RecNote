@@ -35,6 +35,7 @@ class RecordingRepository(private val graph: AppGraph) {
                     check(requested.chunked(500).all { graph.dao.runningJobs(it) == 0 }) { "笔记整理尚未结束，请稍后删除" }
                     val existing = records.map { it.id }
                     if (existing.isNotEmpty()) {
+                        existing.forEach { graph.notes.remove(it, graph.dao.jobs(it)) }
                         entry = journal.prepare(existing)
                         existing.chunked(500).forEach { batch ->
                             graph.dao.deleteBatches(batch); graph.dao.deleteJobs(batch)

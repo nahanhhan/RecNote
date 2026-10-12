@@ -35,7 +35,10 @@ data class PhotoEntity(@PrimaryKey val id: String, val lessonId: String, val fil
 @Entity(tableName = "jobs", indices = [Index("lessonId")])
 data class JobEntity(@PrimaryKey val id: String, val lessonId: String, val revision: Int,
     val snapshotJson: String, val status: String = "waiting", val error: String = "", val createdAt: Long,
-    @ColumnInfo(defaultValue = "''") val systemPrompt: String = "")
+    @ColumnInfo(defaultValue = "''") val systemPrompt: String = "",
+    @ColumnInfo(defaultValue = "0") val attempts: Int = 0)
+
+data class NoteStatusRow(val lessonId: String, val status: String, val revision: Int)
 
 @Entity(tableName = "note_batches", primaryKeys = ["jobId", "batchId", "revision"])
 data class NoteBatchEntity(val jobId: String, val batchId: String, val revision: Int,
@@ -51,9 +54,9 @@ interface LectureDao {
     @Query("SELECT * FROM lessons WHERE id=:id") fun observeLesson(id: String): Flow<LessonEntity?>
     @Query("SELECT * FROM lessons WHERE id=:id") suspend fun lesson(id: String): LessonEntity?
     @Query("SELECT * FROM lessons WHERE id IN (:ids)") suspend fun lessons(ids: List<String>): List<LessonEntity>
-    @Query("SELECT id FROM lessons WHERE status IN ('recording','paused','processing','importing','transcribing') UNION SELECT lessonId FROM jobs WHERE status='running'")
+    @Query("SELECT id FROM lessons WHERE status IN ('recording','paused','processing','importing','transcribing') UNION SELECT lessonId FROM jobs WHERE status IN ('running','queued','retrying','waiting')")
     fun observeBusyLessonIds(): Flow<List<String>>
-    @Query("SELECT COUNT(*) FROM jobs WHERE lessonId IN (:ids) AND status='running'") suspend fun runningJobs(ids: List<String>): Int
+    @Query("SELECT COUNT(*) FROM jobs WHERE lessonId IN (:ids) AND status IN ('running','queued','retrying','waiting')") suspend fun runningJobs(ids: List<String>): Int
     @Query("SELECT title FROM lessons WHERE scheduleKey=:key") suspend fun titlesForSchedule(key: String): List<String>
     @Query("SELECT DISTINCT scheduleKey FROM lessons WHERE scheduleKey<>''") suspend fun scheduleKeys(): List<String>
     @Query("SELECT * FROM schedule_sources ORDER BY createdAt") fun observeScheduleSources(): Flow<List<ScheduleSourceEntity>>
@@ -91,7 +94,11 @@ interface LectureDao {
     @Query("SELECT * FROM jobs WHERE lessonId=:lessonId ORDER BY createdAt DESC") suspend fun jobs(lessonId: String): List<JobEntity>
     @Query("SELECT * FROM jobs WHERE id=:id") suspend fun job(id: String): JobEntity?
     @Query("UPDATE jobs SET status=:status,error=:error WHERE id=:id") suspend fun jobStatus(id: String, status: String, error: String = "")
-    @Query("UPDATE jobs SET status='waiting',error='整理任务已中断，可手动继续' WHERE status='running'") suspend fun interruptOldJobs()
+    @Query("UPDATE jobs SET status='queued',error='正在恢复上次整理' WHERE status='running'") suspend fun interruptOldJobs()
+    @Query("SELECT * FROM jobs WHERE status IN ('queued','running','retrying','waiting') ORDER BY createdAt") suspend fun automaticJobs(): List<JobEntity>
+    @Query("SELECT j.lessonId,j.status,j.revision FROM jobs j WHERE j.id=(SELECT id FROM jobs WHERE lessonId=j.lessonId ORDER BY createdAt DESC,id DESC LIMIT 1)") fun observeNoteStatuses(): Flow<List<NoteStatusRow>>
+    @Query("UPDATE jobs SET snapshotJson=:snapshot WHERE id=:id") suspend fun updateJobPlan(id: String, snapshot: String)
+    @Query("UPDATE jobs SET attempts=:attempts WHERE id=:id") suspend fun jobAttempts(id: String, attempts: Int)
     @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insertBatch(batch: NoteBatchEntity): Long
     @Query("SELECT * FROM note_batches WHERE jobId=:jobId AND batchId=:batchId AND revision=:revision") suspend fun batch(jobId: String, batchId: String, revision: Int): NoteBatchEntity?
     @Query("SELECT * FROM note_batches WHERE jobId=:jobId ORDER BY batchId") suspend fun batches(jobId: String): List<NoteBatchEntity>
@@ -111,10 +118,16 @@ interface LectureDao {
 }
 
 @Database(entities = [LessonEntity::class, ChunkEntity::class, SegmentEntity::class, PhotoEntity::class,
-    JobEntity::class, NoteBatchEntity::class, EditedNoteEntity::class, ScheduleSourceEntity::class], version = 4, exportSchema = false)
+    JobEntity::class, NoteBatchEntity::class, EditedNoteEntity::class, ScheduleSourceEntity::class], version = 5, exportSchema = false)
 abstract class LectureDatabase : RoomDatabase() {
     abstract fun dao(): LectureDao
     companion object {
+        val MIGRATION_4_5 = object : androidx.room.migration.Migration(4, 5) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE jobs ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE jobs SET status='queued',error='正在恢复上次整理' WHERE status IN ('running','waiting')")
+            }
+        }
         val MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE lessons ADD COLUMN sourceType TEXT NOT NULL DEFAULT 'microphone'")

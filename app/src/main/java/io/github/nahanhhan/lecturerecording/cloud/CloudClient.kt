@@ -17,11 +17,16 @@ import javax.net.ssl.SSLException
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
+class CloudFailure(message: String, val retryable: Boolean) : IllegalStateException(message)
+
 class CloudClient(private val settings: CloudSettings, private val client: OkHttpClient = defaultClient(),
     private val sessionId: String = java.util.UUID.randomUUID().toString()) {
     suspend fun complete(body: JsonObject): JsonObject {
         require(settings.model.isNotBlank()) { "请填写模型名称" }
-        val adapted = CloudRequests.adapt(body, settings.baseUrl, settings.strict)
+        val base = CloudRequests.adapt(body, settings.baseUrl, settings.strict)
+        val adapted = if (CloudProvider.detect(settings.baseUrl) == CloudProvider.DEEPSEEK &&
+            (settings.model == "deepseek-flash" || settings.model == "deepseek-v4-pro") && body["tool_choice"] is JsonObject)
+            JsonObject(base + ("max_tokens" to JsonPrimitive(32768))) else base
         AppLog.d("CloudClient") { "请求正文=${CloudRequests.loggable(adapted)}" }
         return execute(request(CloudEndpoint.completions(settings.baseUrl))
             .post(adapted.toString().toRequestBody("application/json".toMediaType())).build())
@@ -58,7 +63,7 @@ class CloudClient(private val settings: CloudSettings, private val client: OkHtt
                         else -> "网络请求失败，请检查设备是否能够访问该供应商"
                     }
                     AppLog.e("CloudClient", message, error)
-                    if (continuation.isActive) continuation.resumeWithException(IllegalStateException(message))
+                    if (continuation.isActive) continuation.resumeWithException(CloudFailure(message, error !is SSLException))
                 }
                 override fun onResponse(call: Call, response: Response) {
                     try {
@@ -79,7 +84,7 @@ class CloudClient(private val settings: CloudSettings, private val client: OkHtt
                                 }
                             }
                             val body = output.toString(Charsets.UTF_8.name())
-                            check(it.isSuccessful) { CloudErrors.message(it.code, body, settings.key.trim()) }
+                            if (!it.isSuccessful) throw CloudFailure(CloudErrors.message(it.code, body, settings.key.trim()), it.code == 429 || it.code >= 500)
                             val json = runCatching { protocolJson.parseToJsonElement(body).jsonObject }.getOrElse {
                                 error("接口没有返回有效 JSON，可能填写了网站地址，请检查 API 基础地址")
                             }
