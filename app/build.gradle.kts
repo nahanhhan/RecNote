@@ -16,8 +16,8 @@ android {
         applicationId = "io.github.nahanhhan.lecturerecording"
         minSdk = 29
         targetSdk = 36
-        versionCode = 7
-        versionName = "0.1.8-alpha"
+        versionCode = 8
+        versionName = "0.1.9-alpha"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += providers.gradleProperty("testAbi").getOrElse("arm64-v8a") }
     }

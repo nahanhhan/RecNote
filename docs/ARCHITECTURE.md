@@ -1,4 +1,4 @@
-# 首版实现结构
+# 实现结构
 
 ## 进程和数据
 
@@ -10,9 +10,11 @@
 
 版本 4 仅追加 `jobs.systemPrompt`，默认空串表示升级前任务；新任务保存完整展开后的系统提示词，旧任务继续使用 legacy 提示词，保留所有已保存来源和笔记。
 
+版本 5 追加自动重试次数，将旧等待/运行任务迁移为排队；版本 6 追加完成笔记待同步的配置版本。所有迁移保留原稿、照片、笔记和冻结提示词。
+
 ## 录音与恢复
 
-音频总样本数是唯一录音时钟。暂停不累加。照片按钮按下时读取样本数并记录独立的 Unix 拍摄日期。
+音频总样本数是唯一录音时钟。暂停不累加。CaptureClock 保存短期墙钟/采样锚点，将原生相机 EXIF 拍摄时间映射回录音位置；缺失或不合理的 EXIF 时间回落到打开相机时的样本数。
 
 课堂状态：`recording → paused → recording → processing → completed`。异常/冷启动恢复将未结束录音标为 `interrupted`。只有用户可见界面启动麦克风前台服务。持续通知支持暂停、继续、停止；服务不随任务页面关闭结束。
 
@@ -40,7 +42,7 @@ WAV 每 30 秒换文件，每秒修正头部、同步文件并更新样本数。
 
 数据库事务预留递增序号，排他创建文件以避免重名；图片写入成功后才提交照片记录。名称包含音频相对毫秒与序号。照片的选择和人工文字编辑增加来源版本；编号和时间不变。
 
-方向监听器持续更新 ImageCapture 的目标方向；拍摄时冻结本次方向。照片缩略图及云端编码根据原始 EXIF 旋转/镜像，原图不改写。拍照页面状态随 Activity 重建恢复；详情页区分尚未加载与实际不存在的记录，避免旋转时误回首页。
+仅通过 TakePicture/FileProvider 调用手机自带相机；移除内置相机、CameraX 和应用相机权限。NativePhotoRepository 原子保存待回传状态，校验全尺寸照片后提交，取消清理临时文件。页面重建或进程重启保留关联；缩略图、PDF、云端编码读取 EXIF 旋转/镜像，原图保留。
 
 ## 音频导入
 
@@ -54,7 +56,7 @@ WAV 每 30 秒换文件，每秒修正头部、同步文件并更新样本数。
 
 系统提示词模板为应用级 `SettingsStore.noteSystemPrompt`，缺失时显示 `NotePrompt.defaultTemplate`；用户可在设置二级页编辑、插入变量、预览、保存和恢复默认草稿。`{{datetime}}` 使用 Android 系统区域日期/时间 API 和系统时区，`{{title}}` 使用 `scheduleTitle`，无绑定时使用 `title`。替换为单次字面量操作，未知变量保持原文。
 
-`NotesService.createJob` 冻结展开文本到 `JobEntity.systemPrompt`，`runJob` 全部批次和 tool 回执请求复用该快照；设置修改不影响旧任务或接口能力测试状态。工具定义只限定保存结构与来源，写作风格由可编辑 system 消息指定。Debug 请求日志使用 `CloudRequests.loggable` 省略 system/developer 正文；连接测试使用固定合成材料与 legacy 提示词。
+`NotesRepository.createJob` 冻结展开文本到 `JobEntity.systemPrompt`，`runJob` 全部批次和 tool 回执请求复用该快照；设置修改不影响旧任务或接口能力测试状态。工具定义只限定保存结构与来源，写作风格由可编辑 system 消息指定。Debug 请求日志使用 `CloudRequests.loggable` 省略 system/developer 正文；连接测试使用固定合成材料与 legacy 提示词。
 
 预设默认生成“预设一”“预设二”，支持新增及重命名。旧配置复制到首个预设，密钥继续由 Keystore 加密；每个预设有独立配置和测试状态。修改名称不使通过状态失效，修改请求配置或重新测试会失效。
 
@@ -66,11 +68,11 @@ OpenCode Go 使用 `/zen/go/v1` 路径，与 Zen 的配置分开。客户端发�
 
 DeepSeek 适配按实际官方域名识别，旧自定义配置也适用：显式关闭思考模式以支持指定工具选择，省略 `strict` 和文档未定义的 `parallel_tool_calls`。其他供应商关闭严格模式时也省略 `strict`。所有模式仍执行本机结构、来源和保存校验。当前适配器支持 Chat Completions；OpenCode Zen 中使用其他格式的模型不可直接使用。
 
-手动启动 `NotesService` 后，事务冻结课堂来源版本及全部批次。照片最多六张、正文最多六千字符；大段人工文本按字符上限切成批次输入，保留原段落编号。
+手动开始整理后，NotesRepository 事务冻结来源版本及批次，交给每任务唯一 NotesWorker。新批次最多两张照片、2500 字和 40 个来源段落；大段按字符切分，保留原编号。NotesService 仅兼容旧启动指令。
 
 关闭「让模型读取照片内容」后，分批快照只包含转写段落，不包含照片编号或图片；原图和选择状态仍保留在本机，渲染与导出时根据转写来源编号和拍照时的录音时间自动插入对应小节。只含照片的课堂在文字模式下不能发起整理。恢复旧图文任务时检查当前配置允许读图，否则要求启用并测试读图或发起新的文字任务，防止恢复任务绕过照片开关。
 
-任务状态为 `waiting/running/completed`。网络、兼容性、来源变化或系统时限错误将任务置为等待手动继续。每个已保存批次由 `jobId + batchId + revision` 唯一约束；同批次不会重复追加。
+任务状态为 queued/running/retrying/paused/failed/completed。任务在后台和锁屏继续，dataSync 通知及有界唤醒锁维持执行，暂时网络错误有限退避，永久错误停止。进程重启自动恢复，用户暂停不会自动恢复。length 响应拒绝保存，并无损拆分未保存批次、持久替换计划后继续；已保存批次复用，唯一约束保持。已整理要求当前原稿版本完整成功。
 
 模型通过 `save_class_notes` 返回完整 JSON 字符串参数。核心模块拒绝未知工具、错误类型、额外字段、空笔记、无来源、跨批次引用、错误照片时间及模型提供的图片路径。实际保存完成后，才创建并回传成功工具回执。数据库持久化原始 assistant 消息及 tool 回执；保存后网络中断的恢复直接复用该消息完成确认。
 
@@ -80,11 +82,11 @@ DeepSeek 适配按实际官方域名识别，旧自定义配置也适用：显�
 
 `SettingsStore` 保存网盘地址与配置 revision，用户名/密码均由 AndroidKeyStore AES-GCM 加密。映射以 `scheduleTitle` 原始 ICS 日程名精确匹配，不使用可编辑标题或 `-x` 编号。路径始终相对 WebDAV 地址根目录，未匹配用根目录，禁止点路径逃逸。
 
-`WebDavSyncRepository` 在整理成功及笔记编辑保存后制作私有不可变快照：`files/webdav/packages/<lessonId>/<packageId>/` 包含 `notes.md` 和 Markdown 引用的本地照片。导入音频只取文字。目的文件夹含 UTC 创建时间、安全标题、录音编号与 Markdown/照片内容 hash，内容变化保存不同版本，相同快照重试不变。状态在 `files/webdav/state/<lessonId>.json` 原子持久化，不含凭据，无 Room schema 变化。
+`WebDavSyncRepository` 在整理成功及笔记编辑保存后制作私有不可变快照：`files/webdav/packages/<lessonId>/<packageId>/` 包含 notes.md、notes.pdf 和 Markdown 引用的照片。先持久保存 preparing 状态及冻结标题，再由 worker 后台生成 PDF；中断可恢复。导入音频只取文字 Markdown/PDF。目的文件夹含 UTC 创建时间、安全标题、录音编号与 Markdown/照片/PDF 排版版本 hash，内容变化保存不同版本，相同快照重试不变。状态在 `files/webdav/state/<lessonId>.json` 原子持久化，不含凭据；Room 6 额外保存完成后、入队前的待同步意图及其配置版本。
 
 `WebDavUploadWorker` 每条录音一个唯一任务，网络约束、指数退避、最多五次自动尝试，启动后恢复未完成队列。旧 worker 只能修改自己持有的 packageId 状态；改网盘配置会停止旧队列，本地删除取消对应任务并清理快照，不删除远端资料。上传成功与失败独立于笔记整理状态，失败仍可阅读和导出，详情页可手动重试。
 
-`WebDavClient` 严格验证 PROPFIND 207 中对应资源的集合属性，逐级 MKCOL，405 再查目录；照片先 PUT，最后 PUT Markdown。XML 限制 256 KiB，拒绝 DTD/ENTITY；请求可取消、有限超时、禁止重定向、沿用系统 TLS 证书验证。连接测试只写入并删除随机空探测文件。错误不包含服务端正文或凭据，Debug 也不记录网盘账号/密码。HTTP WebDAV 需要应用启用明文流量，模型接口与 ICS 入口仍限制 HTTPS，模型下载禁止 HTTPS 降级重定向。
+`WebDavClient` 严格验证 PROPFIND 207 中对应资源的集合属性，逐级 MKCOL，405 再查目录；照片和 PDF 先 PUT，最后 PUT Markdown。XML 限制 256 KiB，拒绝 DTD/ENTITY；请求可取消、有限超时、禁止重定向、沿用系统 TLS 证书验证。连接测试只写入并删除随机空探测文件。错误不包含服务端正文或凭据，Debug 也不记录网盘账号/密码。HTTP WebDAV 需要应用启用明文流量，模型接口与 ICS 入口仍限制 HTTPS，模型下载禁止 HTTPS 降级重定向。
 
 设置二级页面提供映射增改删和独立返回导航。修改映射只影响之后制作的上传快照，历史笔记由用户主动上传。
 
@@ -92,4 +94,4 @@ DeepSeek 适配按实际官方域名识别，旧自定义配置也适用：显�
 
 批次按序合并为 Markdown，来源显示为段落录音时间，图片由本地编号映射插入。模型未引用的照片按录音时间匹配所引用的转写段落并插入对应小节；讲话间隙匹配前一来源，开头/结尾匹配最近可用来源。模型已明确引用的位置保留，每张照片只出现一次。只有没有任何可用文字来源的照片才附在末尾。CommonMark 渲染时转义原始 HTML，WebView 阻止网络加载，KaTeX 及字体在 APK 内供离线公式渲染。
 
-PDF 使用 Android 打印服务默认 A4 白底；Markdown ZIP 保留相对图片路径和原文件名。长表格、跨页图片和复杂公式需要在真机打印预览中验收。
+PDF 使用 Android PdfDocument/StaticLayout 自动分页，普通中文文本可选取，本地图片按 EXIF 解码；公式用离线 KaTeX 光栅化嵌入，资源就绪后再画入 PDF。导出由系统文件选择器保存，ZIP 包含 PDF、Markdown 和相关原图。CI 隔离模拟器执行合成 PDF 与状态测试并输出逐页图片，真实手机体验另行验收。

@@ -6,6 +6,7 @@ schema: spec-driven
 # Keep general project documentation and discoverable codebase facts out.
 context: |
   开发规矩：
+  - GitHub 默认分支为最新版；每次功能开发或 debug SHALL 先检查云端更新并安全同步。提交上传前 SHALL 再检查，保留其他成员修改，MUST NOT 用旧本地版本覆盖或强制推送。
   - Kotlin/Android 验证由 CI 承担（执行 :core:test、:app:testDebugUnitTest、:app:compileDebugAndroidTestKotlin、:app:lintDebug、:app:assembleDebug 并上传测试报告与 APK）；端侧 MUST NOT 要求 Kotlin/JDK/Android SDK 环境，验证结论以 CI 结果为准。仪器测试源码编译不代表测试已在设备执行。
   - 端侧提交前自检：在 scripts/tests 下执行 `uv run python -m checks` 单命令（只读、不修改被检查文件；失败以非零退出码并列出失败项与文件）。OpenSpec 工件校验用 openspec 官方命令，MUST NOT 重复实现。
   - 端侧 Python 验证一律经 uv 执行（`uv run python ...`），MUST NOT 裸跑系统 Python；验证脚本统一收于 scripts/tests（仓库唯一 uv 源）。
