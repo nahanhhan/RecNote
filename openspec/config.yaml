@@ -15,6 +15,7 @@ context: |
   - README 仅在存在需要通知用户的行为或约定变化时才改动；检查项增减、内部实现调整 MUST NOT 触发 README 改动。
   - WebDAV 凭据 MUST 本机加密保存且任何日志档位均不可输出；同步测试只用合成资料与模拟服务。导入音频的同步 MUST 仅发送文字笔记，不允许图文混合流程。
   - Debug 请求日志 MUST 省略 system/developer 消息正文；新增系统提示词配置及变量测试 MUST 使用合成内容，不打印或提交真实凭据。
+  - PDF 与持久状态的运行验证 SHALL 在 CI 的 x86_64 隔离模拟器执行（应用包名 .uitest），上传合成 PDF/页面图片及报告；模拟器验证 MUST NOT 表述为用户手机、原生相机厂商行为或真实网盘验收。
 
 # Per-artifact rules (optional)
 # Add custom rules for specific artifacts.
