@@ -8,7 +8,7 @@
 
 ### Requirement: 原稿回写开始路径下的 transcripts 目录
 
-电脑 SHALL 把原稿写到开始包 `cloud_path` 指定任务目录下的 `.transcripts/`。每个大切片 SHALL 对应稳定命名的 Markdown 原稿；只有该块内部全部语句识别成功并完整上传原稿后，电脑才可在结果索引中宣布该块完成。索引 MUST 关联任务、块编号、输入音频校验值、相对云盘根的原稿路径、字节数及校验值；path MUST 为 `RecNoteRemote/<session_id>/.transcripts/<六位编号>.md`，不得再次拼接任务根或 `.transcripts/`，失败块 MUST 有可读原因。
+电脑 SHALL 把原稿写到开始包 `cloud_path` 指定任务目录下的 `.transcripts/`。每个大切片 SHALL 对应稳定命名的 Markdown 原稿；只有该块内部全部语句识别成功并完整上传原稿后，电脑才可在结果索引中宣布该块完成。索引块条目 MUST 使用 `sequence, audio_sha256, status, path, sha256, error`，不传字节数；status MUST 仅为 `completed/failed`，未完成块不入索引。path MUST 为相对云盘根的 `RecNoteRemote/<session_id>/.transcripts/<六位编号>.md`，不得再次拼接任务根或 `.transcripts/`，失败块 MUST 有可读原因。
 
 #### Scenario: 大切片完整完成
 - **WHEN** V2N 已完成一块音频内的全部语句并回写完整 Markdown
@@ -36,7 +36,7 @@
 
 ### Requirement: 全部识别完成必须核对最终结果
 
-电脑 SHALL 在最终音频清单的全部块已验证、转写并回写后发布 `.transcripts/` 的整任务完成标记。该标记 MUST 绑定任务、最终音频清单校验值以及全部块的原稿校验值。手机 SHALL 核对最终块集合与已保存原稿后才显示「转写完成」并允许发起 LLM 整理。文件暂时缺失、校验失败或部分失败 MUST 保持未完成；零块录音 SHALL 明确显示没有可整理的音频。
+电脑 SHALL 在最终音频清单的全部块已验证、转写并回写后发布 `.transcripts/` 的整任务完成标记。该标记 MUST 绑定任务、最终音频清单校验值以及全部块的原稿校验值，每块 MUST 仅使用 `sequence, audio_sha256, path, sha256`。手机 SHALL 核对最终块集合、索引中对应块的 completed 状态与已保存原稿后才显示「转写完成」并允许发起 LLM 整理。文件暂时缺失、校验失败或部分失败 MUST 保持未完成；零块录音 SHALL 明确显示没有可整理的音频。
 
 #### Scenario: 完成标记先于文件可见
 - **WHEN** 完成标记可见但其中一份原稿尚无法完整下载

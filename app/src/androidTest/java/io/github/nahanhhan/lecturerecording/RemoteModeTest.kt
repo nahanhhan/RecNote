@@ -1,6 +1,9 @@
 package io.github.nahanhhan.lecturerecording
 
 import android.content.Context
+import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.test.core.app.ActivityScenario
 import androidx.core.content.FileProvider
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -30,6 +33,7 @@ import java.util.concurrent.TimeUnit
 /** 仅访问模拟电脑和模拟云盘；隔离应用内实际执行持久化、导入和结果回收。 */
 @RunWith(AndroidJUnit4::class)
 class RemoteModeTest {
+    @get:Rule val compose = createEmptyComposeRule()
     private val app get() = ApplicationProvider.getApplicationContext<LectureApp>()
     private val graph get() = app.graph
     private lateinit var server: MockWebServer
@@ -39,6 +43,7 @@ class RemoteModeTest {
     private val ids = mutableListOf<String>()
     @Volatile private var reject = false
     @Volatile private var temporaryFailure = false
+    @Volatile private var receiptFault = ""
     @Before fun setup(): Unit = runBlocking {
         check(app.packageName.endsWith(".uitest"))
         graph.initialized.await()
@@ -60,10 +65,10 @@ class RemoteModeTest {
                         val source = requireNotNull(files["/dav/$relative"])
                         check(RemoteProtocol.sha256(source) == probe["sha256"]!!.jsonPrimitive.content)
                         val raw = buildJsonObject { put("protocol_version", 1); put("synthetic_probe_digest", RemoteProtocol.sha256(source)); put("asr_ready", true); put("synthetic_time", 0) }.toString().toByteArray()
-                        files["/dav/$relative.receipt.json"] = raw
+                        if (receiptFault != "missing") files["/dav/$relative.receipt.json"] = raw
                         return json(buildJsonObject {
                             put("protocol_version", 1); put("ok", true); put("asr_ready", true); put("model_loaded", false); put("read_ok", true); put("write_ok", true)
-                            put("receipt", buildJsonObject { put("path", "$relative.receipt.json"); put("sha256", RemoteProtocol.sha256(raw)) }); put("error", JsonNull)
+                            put("receipt", buildJsonObject { put("path", if (receiptFault == "path") "RecNoteRemote/_probe/foreign.bin.receipt.json" else "$relative.receipt.json"); put("sha256", if (receiptFault == "sha") "0".repeat(64) else RemoteProtocol.sha256(raw)) }); put("error", JsonNull)
                         }.toString())
                     }
                     if (path.endsWith("/start")) {
@@ -201,6 +206,22 @@ class RemoteModeTest {
         assertFalse(graph.remote.testConnection())
         assertTrue(notifications.none { it.first.endsWith("/start") })
         assertTrue(files.keys.none { it.contains("/_probe/") })
+    }
+    @Test fun connectionRejectsMissingForeignOrCorruptedReceipt(): Unit = runBlocking {
+        for (fault in listOf("missing", "path", "sha")) {
+            receiptFault = fault
+            try { graph.remote.testConnection(); fail("Invalid receipt accepted: $fault") }
+            catch (_: IllegalStateException) { }
+        }
+    }
+    @Test fun connectionScreenShowsColdModelHintAfterVerifiedRoundTrip() {
+        ActivityScenario.launch(MainActivity::class.java).use {
+            compose.onNodeWithContentDescription("设置").performClick()
+            compose.onNodeWithText("保存并测试连接").performScrollTo().performClick()
+            compose.waitUntil(15000) {
+                compose.onAllNodesWithText("连接成功，双端云盘目录已验证；电脑模型尚未加载，首块识别可能较慢").fetchSemanticsNodes().isNotEmpty()
+            }
+        }
     }
     @Test fun authenticationFailureStopsAutomaticAttemptsAndManualRetryRecovers(): Unit = runBlocking {
         val id = lesson(); chunk(id); reject = true

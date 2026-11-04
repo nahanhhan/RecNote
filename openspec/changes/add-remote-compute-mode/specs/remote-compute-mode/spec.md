@@ -20,7 +20,7 @@
 
 ### Requirement: 远程连接配置与测试
 
-后端 URL SHALL 支持用户指定的 HTTP/HTTPS 基础地址，默认 MUST 为空，不允许内嵌账号、查询串或 fragment。远程 token MUST 加密保存、输入时遮蔽且任何日志档位均不得输出。ASR 连接测试 SHALL 检查协议版本、后端识别就绪状态以及双端云盘目录可达性，MUST 仅使用合成小型探测资料，不发起真实识别或笔记整理；手机的 LLM 连接测试 SHALL 沿用原流程，两个测试状态 MUST 相互独立。probe 请求 SHALL 仅使用 `token, path, sha256`，path MUST 为相对云盘根且恰好三段的 `RecNoteRemote/_probe/<uuid>.bin`。响应 SHALL 读取 `protocol_version, ok, asr_ready, model_loaded, read_ok, write_ok, receipt{path, sha256}, error`，以响应布尔值判断就绪，不能仅看 HTTP 成功。手机 MUST 回读 `<探测路径>.receipt.json` 并将实际回执文件字节摘要与响应 `receipt.sha256` 比对，再核对回执内探测文件校验值和本次探测一致；所有检查通过才可报告双端目录可达。`model_loaded=false` SHALL 提示首块识别可能较慢，不单独判定连接失败；`ok=false` MUST 显示就绪原因且不得进入退避重试。界面 SHALL 说明两个 `127.0.0.1` 分别指各自设备、HTTP 的传输方式及电脑需在线；测试失败 SHALL 展示原因。
+后端 URL SHALL 支持用户指定的 HTTP/HTTPS 基础地址，默认 MUST 为空，不允许内嵌账号、查询串或 fragment。远程 token MUST 加密保存、输入时遮蔽且任何日志档位均不得输出。ASR 连接测试 SHALL 检查协议版本、后端识别就绪状态以及双端云盘目录可达性，MUST 仅使用合成小型探测资料，不发起真实识别或笔记整理；手机的 LLM 连接测试 SHALL 沿用原流程，两个测试状态 MUST 相互独立。health SHALL 检查 `storage_ready`；probe 请求 SHALL 使用 `protocol_version=1, token, path, sha256`，path MUST 为相对云盘根且恰好三段的 `RecNoteRemote/_probe/<uuid>.bin`。响应 SHALL 读取 `protocol_version, ok, asr_ready, model_loaded, read_ok, write_ok, receipt{path, sha256}, error`，以响应布尔值判断就绪，不能仅看 HTTP 成功。手机 MUST 回读 `<探测路径>.receipt.json` 并将实际回执文件字节摘要与响应 `receipt.sha256` 比对，再核对回执内探测文件校验值和本次探测一致；所有检查通过才可报告双端目录可达。`model_loaded=false` SHALL 提示首块识别可能较慢，不单独判定连接失败；`ok=false` MUST 显示就绪原因且不得进入退避重试。界面 SHALL 说明两个 `127.0.0.1` 分别指各自设备、HTTP 的传输方式及电脑需在线；测试失败 SHALL 展示原因。
 
 #### Scenario: 未配置
 - **WHEN** 用户选中远程模式但尚未保存有效后端或手机网盘连接

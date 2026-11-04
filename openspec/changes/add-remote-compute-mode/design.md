@@ -9,7 +9,7 @@
 - `SettingsScreen` 当前首先显示本地模型，随后显示 `CloudSettingsPanel`；`SettingsStore` 已提供本机密钥加密和 WebDAV 连接资料。
 - `NotesRepository`、`NoteValidator`、`DetailScreen` 和 `WebDavSyncRepository` 当前提供手机供应商连接测试、提示词快照、工具回执、`NoteBatchEntity` 保存与同步。远程原稿映射为现有 `SegmentEntity` 后继续使用这条整理流程；V2N 回写的 Markdown 是原稿，不是最终笔记。
 - 此前核对 Voice2Note 的提交 `c7e837c7563e95c224e021bb8000b9e0b4fb64e4`：[CLI](https://github.com/zhangtony239/Voice2Note/blob/c7e837c7563e95c224e021bb8000b9e0b4fb64e4/src/voice2note/cli.py) 自动执行 ASR 与 LLM 两阶段；[ASR](https://github.com/zhangtony239/Voice2Note/blob/c7e837c7563e95c224e021bb8000b9e0b4fb64e4/src/voice2note/asr.py) 已有按句切分和模型懒加载。新增电脑服务只复用识别函数，不运行 CLI 的完整流水线。
-- 当前范围：电脑只做 ASR，其服务 `rec-daemon.yaml` 只含监听、鉴权、OpenList、队列、体积限制及状态／工作目录配置，不含模型字段；批处理配置仍为独立的 `config.yaml`。手机在详情取回 `.transcripts/` 完整原稿，仍由现有「整理笔记」按钮直接调用手机配置的供应商；手机提示词、读图、保存和导出沿用原流程。
+- 当前范围：电脑只做 ASR，其服务 `rec-daemon.yaml` 与批处理 `config.yaml` 分开，由电脑端维护识别运行环境、监听、鉴权、OpenList、队列、体积限制及状态／工作目录。手机在详情取回 `.transcripts/` 完整原稿，仍由现有「整理笔记」按钮直接调用手机配置的供应商；手机提示词、读图、保存和导出沿用原流程。
 
 ## Goals / Non-Goals
 
@@ -70,9 +70,9 @@ RecNoteRemote/<session_id>/
 
 清单公共字段：`protocol_version`、`session_id`、`revision`、`sample_rate=16000`、`channels=1`、`encoding=pcm_s16le`、`chunks`。每块字段为 `sequence`、`path`、`start_sample`、`sample_count`、`sha256`。音频条目删除 `bytes`，`sample_count` 必填且表示采样帧数；`path` 固定为相对云盘根的 `RecNoteRemote/<session_id>/audio/<六位编号>.wav`。滚动清单只列上传成功的块；`final.json` 增加 `total_samples` 和 `chunk_count`，冻结所有非空块，必须按样本顺序连续且无重叠。暂停不增加音频样本时间。
 
-`.transcripts/index.json` 的公共字段为 `protocol_version, session_id, revision, chunks`；每块条目绑定 `sequence`、`audio_sha256`、`status`、`path`、`bytes`、`sha256` 及 `error`，原稿 `path` 固定为相对云盘根的 `RecNoteRemote/<session_id>/.transcripts/<六位编号>.md`。内部所有语句成功后，先上传整块 Markdown 再更新索引。静音块也产生一份可验证的完成原稿，其内容为一个换行字节（`\n`）；所有原稿统一以单个换行结尾，手机先验证实际 UTF-8 文件字节，再用去除首尾空白后的文字判断是否有可整理内容；「识别完成」与「有可整理文字」分开判断。
+`.transcripts/index.json` 的公共字段为 `protocol_version, session_id, revision, chunks`；每块条目为 `sequence, audio_sha256, status, path, sha256, error`，没有 `bytes`；status 仅为 completed/failed，尚未完成的块不入索引。原稿 `path` 固定为相对云盘根的 `RecNoteRemote/<session_id>/.transcripts/<六位编号>.md`。内部所有语句成功后，先上传整块 Markdown 再更新索引。静音块也产生一份可验证的完成原稿，其内容为一个换行字节（`\n`）；所有原稿统一以单个换行结尾，手机先验证实际 UTF-8 文件字节，再用去除首尾空白后的文字判断是否有可整理内容；「识别完成」与「有可整理文字」分开判断。
 
-`.transcripts/complete.json` 含 `protocol_version, session_id, final_manifest_sha256, chunks`，绑定原始 `final.json` 字节的 SHA-256 以及每块的输入和原稿校验值。手机必须把最终集合全部读回并保存后才显示转写完成。电脑内部有更多句级信息时不作为首版协议必需项。
+`.transcripts/complete.json` 含 `protocol_version, session_id, final_manifest_sha256, chunks`，块条目仅含 `sequence, audio_sha256, path, sha256`，绑定原始 `final.json` 字节的 SHA-256 以及每块的输入和原稿校验值。手机必须把最终集合全部读回并保存，并与 completed 索引项一致后才显示转写完成。电脑内部有更多句级信息时不作为首版协议必需项。
 
 首次读取的上限：控制 JSON 64 KiB，清单／索引 2 MiB，单块原稿 128 KiB。超过上限报明确错误，不无限读入内存；这些是 ASR 协议 v1 的边界，变更需双仓库同步。笔记输入／输出限制继续由手机既有 LLM 流程管理。
 
@@ -85,7 +85,7 @@ RecNoteRemote/<session_id>/
 | 接口 | 鉴权与输入 | 返回与作用 |
 | --- | --- | --- |
 | `GET /api/v1/health` | `Authorization: Bearer <connection_token>` | 协议版本、ASR 与 OpenList 就绪状态；不返回密钥，不依赖 LLM |
-| `POST /api/v1/probe` | 包体 `token, path, sha256`，path 为 `RecNoteRemote/_probe/<uuid>.bin` | 电脑读入探测文件后写回 `<path>.receipt.json`，手机回读回执并校验响应 `receipt.sha256`，确认双向可达 |
+| `POST /api/v1/probe` | 包体 `protocol_version=1, token, path, sha256`，path 为 `RecNoteRemote/_probe/<uuid>.bin` | 电脑读入探测文件后写回 `<path>.receipt.json`，手机回读回执并校验响应 `receipt.sha256`，确认双向可达 |
 | `POST /api/v1/sessions/start` | 包体 `protocol_version, token, session_id, cloud_path, title, source_type` | 建立轮询；返回 `session_id, session_token, state` |
 | `POST /api/v1/sessions/end` | 包体仅 `token`，值为 `session_token` | 任务 token 合法则恒返回成功，重复提交同样成功；只标记收尾，响应不代表全部识别完成 |
 | `GET /api/v1/sessions/<session_id>` | `Authorization: Bearer <session_token>` | 诊断状态、块计数和错误；原稿仍从云盘读取 |
@@ -153,7 +153,7 @@ flowchart LR
 
 保留 `NoteValidator`、工具回执、`NoteBatchEntity`、`EditedNoteEntity` 和现有 WebDAV 完成判断；不新增电脑笔记结果格式或笔记回收队列。手机的供应商预设、API Key、提示词变量、照片读图能力和批次规划均保持原有约定。
 
-电脑服务配置使用独立的 `rec-daemon.yaml`，包含监听／鉴权、OpenList、队列、体积上限及本地状态／工作目录，不含模型配置字段。批处理的 `config.yaml` 单独保留；模型加载由电脑端已有识别运行环境处理，不由手机传递模型配置。
+电脑服务配置使用独立的 `rec-daemon.yaml`，由电脑端维护识别运行环境、监听／鉴权、OpenList、队列、体积上限及本地状态／工作目录。批处理的 `config.yaml` 单独保留；手机不传递电脑模型配置。
 
 ### 8. 原稿状态存储与既有照片处理
 
@@ -205,6 +205,8 @@ probe 成功响应字段为 `protocol_version, ok, asr_ready, model_loaded, read
 
 取消确认使用持久发件箱：删除手机录音前，保留任务身份、原连接引用和加密任务 token；手机录音清理后仍可重发取消，确认电脑已停止并清理工作目录后移除发件箱。已完成任务也发送取消。连接改变时暂停待发送记录，不能向新服务器或新账号发送旧任务；取消响应迟到不重建录音。
 
-附件未给出回执内部的具体字段名／时间格式、音频流式体积上限数值，也未附对端 `tests/fixtures/protocol_v1/` 的四份 JSON 与字段说明。以上作为实现前资料依赖，不自行猜值或把合成文件冒充对端样例；收到后先固化字段，再实施第 7 组任务。本文只移除音频条目的 `bytes`；结果索引原有 `bytes` 暂保留，最终字段集合以对端样例核对。
+已读取 Voice2Note 提交 `e4b958f5d914efd9e03c0748528d1d7ec492d978` 的 `openspec/changes/add-rec-daemon/design.md`，据此确认 health 使用 `storage_ready`、probe 带 `protocol_version=1`、结果索引无 bytes 且仅 completed/failed、完成标记块条目无 status/error。文档内三份 JSON 已原样复制并登记来源，Kotlin 测试断言字段；摘要省略值只用于字段测试，不用于实际数据校验。
+
+该提交尚无 `tests/fixtures/protocol_v1/` 四份正式 JSON 与字段说明，回执内部摘要／时间字段名也未明确。正式夹具仍为待办，不将合成测试冒充对端样例。当前回执检查协议版本、原始字节摘要及顶层值中的探测摘要绑定；时间字段格式待正式样例确认。旧协议未完成任务迁移为暂停，用户明确选择后复制到新标识重新转写，原记录、已缓存内容及原不可变最终清单保留。
 
 已交付 APK 和旧持久清单需要迁移策略：有原始本地音频的未完成任务可由手机显式新建任务重新发布新格式；不得原地改写已发布的不可变 `final.json`。新协议适配与回归验证完成前，不宣称旧包已兼容对端定稿。

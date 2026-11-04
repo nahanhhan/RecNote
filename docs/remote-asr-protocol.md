@@ -1,6 +1,6 @@
 # RecNote 远程识别协议 v1
 
-本文于 2026-11-04 根据用户提供的 `RecNote-Sync.md` 更新为待适配的目标契约。附件描述 Voice2Note 方案已定稿，但未附其完整设计及协议夹具，本文不据此宣称电脑服务已部署。现有 RecNote 代码和已交付 `a8e53ee` APK 使用旧契约，尚需完成 [任务第 7 组](../openspec/changes/add-remote-compute-mode/tasks.md)。历史工程验证见 [verification.md](../openspec/changes/add-remote-compute-mode/verification.md)。
+本文于 2026-11-04 按用户提供的 `RecNote-Sync.md` 实施，并以 Voice2Note 提交 `e4b958f5d914efd9e03c0748528d1d7ec492d978` 的 `openspec/changes/add-rec-daemon/design.md` 核对具体字段。RecNote 已实现本页客户端契约；已交付 `a8e53ee` APK 使用旧契约，需要更新安装包。正式协议夹具、电脑服务部署和实际联调仍单独验收，记录见 [verification.md](../openspec/changes/add-remote-compute-mode/verification.md)。
 
 ## 连接与路径
 
@@ -14,8 +14,8 @@
 
 | 接口 | 输入 | 响应及作用 |
 | --- | --- | --- |
-| `GET health` | Bearer 连接 token | `protocol_version=1, asr_ready, openlist_ready`；连接成功还须 probe 的双向回执校验 |
-| `POST probe` | `token, path, sha256` | 返回下节完整字段；path 固定为 `RecNoteRemote/_probe/<uuid>.bin` |
+| `GET health` | Bearer 连接 token | `protocol_version=1, service, version, asr_ready, model_loaded, storage_ready, capabilities`；连接成功还须 probe 的双向回执校验 |
+| `POST probe` | `protocol_version=1, token, path, sha256` | 返回下节完整字段；path 固定为 `RecNoteRemote/_probe/<uuid>.bin` |
 | `POST sessions/start` | `protocol_version=1, token, session_id, cloud_path, title, source_type` | `session_id, session_token, state`；相同身份和目录幂等返回原任务与 token |
 | `POST sessions/end` | 仅 `{"token":"<session_token>"}` | token 合法恒成功，重复也成功；等待最终清单和迟到块，不设合法 end 的 409 分支 |
 | `GET sessions/<session_id>` | Bearer 任务 token | `session_id, state`；state 仅为 `waiting_source, receiving, draining, completed, failed, cancelled` |
@@ -27,7 +27,7 @@
 ## 双向探测与回执
 
 1. 手机写入独立合成文件 `RecNoteRemote/_probe/<uuid>.bin`，path 恰好三段，相对云盘根。
-2. 手机 POST probe，字段为 `token, path, sha256`，不使用 `cloud_path` 表示探测文件。
+2. 手机 POST probe，字段为 `protocol_version=1, token, path, sha256`，不使用 `cloud_path` 表示探测文件。
 3. 电脑读入并核验探测文件，写回同目录的 `<探测路径>.receipt.json`。
 4. 响应字段为 `protocol_version, ok, asr_ready, model_loaded, read_ok, write_ok, receipt{path, sha256}, error`。HTTP 状态表示请求合法性，就绪按响应体布尔值判断。
 5. 手机要求协议匹配及 `ok/asr_ready/read_ok/write_ok` 通过；核对返回的回执 path 恰为本次预期路径，回读其确切字节，核对 SHA-256 与响应 `receipt.sha256` 相同；再验证回执内部的协议版本和探测文件校验值绑定本次探测。
@@ -58,11 +58,11 @@ RecNoteRemote/_probe/<uuid>.bin.receipt.json
 
 滚动清单只列上传成功块，数据先写、清单后发布，revision 单调递增。`final.json` 额外含 `total_samples, chunk_count`，停止且全部音频上传后发布，并保留确切 UTF-8 JSON 字节，不重新序列化后校验摘要，不修改已发布的不可变集合。
 
-`index.json` 保留 `protocol_version, session_id, revision, chunks`。结果条目沿用 `sequence, audio_sha256, status, path, bytes, sha256, error`，其中 path 改为云盘根相对路径。**本次仅删除音频条目的 bytes**；结果字段最终以对端原样例再核对。块级 status 与接口 state 是不同字段，既有块级 `pending, processing, completed, failed` 不因接口 state 改名而扩展成六态。
+`index.json` 字段为 `protocol_version, session_id, revision, chunks`。结果条目为 `sequence, audio_sha256, status, path, sha256, error`，没有 `bytes`；path 为云盘根相对路径。块级 status 仅为 `completed, failed`，尚未完成的块不写入索引，手机据缺项显示等待。
 
 识别结果文本加一个结尾换行形成 UTF-8 原稿，统一以单个换行结尾；静音块原稿为一字节 `\n` 文件。手机先按原始字节验摘要，再去首尾空白判空，不能将静音误判成缺文件。块内全部语句完成且原稿回写成功，才发布整块 completed；手机按本地音频样本范围映射块级来源段落和回听。
 
-`complete.json` 保留 `protocol_version, session_id, final_manifest_sha256, chunks`，绑定收到的原始最终清单字节和完整块结果指纹。只有最终集合、索引及全部已保存原稿相符才标记转写完成；接口 state=completed 本身不足以证明手机已取回全部文字。编辑后重复刷新不覆盖本地内容。
+`complete.json` 字段为 `protocol_version, session_id, final_manifest_sha256, chunks`，块条目仅为 `sequence, audio_sha256, path, sha256`，没有 `status/error/bytes`。它绑定收到的原始最终清单字节和完整块结果指纹。只有最终集合、索引及全部已保存原稿相符才标记转写完成；接口 state=completed 本身不足以证明手机已取回全部文字。编辑后重复刷新不覆盖本地内容。
 
 清单／索引／完成标记保留 2 MiB 接收上限，原稿保留 128 KiB 上限；原始文件 SHA-256 使用小写十六进制。拒绝跨任务路径、任意 URL、非法点路径和未知块；半写、暂时 404、旧索引或缺原稿时保留已验证缓存，等待刷新。云盘无需支持原子 MOVE。
 
@@ -77,7 +77,7 @@ RecNoteRemote/_probe/<uuid>.bin.receipt.json
 
 ## 配置、取消与恢复
 
-电脑服务配置为 `rec-daemon.yaml`，与批处理 `config.yaml` 分开，包含服务／存储／队列／体积限制／工作目录配置，不含模型字段。字段名和配置上限须从对端资料确认。手机模型整理配置保持原流程，不进入电脑服务配置。
+电脑服务配置为 `rec-daemon.yaml`，与批处理 `config.yaml` 分开，由电脑端维护服务、存储、识别运行环境、队列、体积限制及工作目录。手机不传递电脑识别模型配置；手机模型整理配置保持原流程。实际部署的体积上限须在联调前确认。
 
 记录识别模式在创建时固定；电脑或网盘连接改变使旧任务暂停，恢复原配置后手动重试。笔记同步开关独立于音频上传。手机重启恢复封存块和控制通知，不自动开麦或冻结中断录音的最终集合。
 
@@ -85,6 +85,8 @@ RecNoteRemote/_probe/<uuid>.bin.receipt.json
 
 ## 样例与兼容状态
 
-待取得 Voice2Note `tests/fixtures/protocol_v1/` 的滚动清单、最终清单、结果索引、完成标记四份 JSON 和字段说明，原样复制至 RecNote 测试资源并用 Kotlin 断言字段；另补 probe 响应／回执样例。当前附件只有同步清单，没有这些原文件；文档中的约定不是对端样例验证结果。
+已将上述 Voice2Note 设计文档中的清单、结果索引、完成标记三份 JSON 原样保存于 `core/src/test/resources/voice2note-design/`，登记来源提交，并由 `RemoteDesignContractTest` 断言各层字段。原文摘要是省略写法，这三份属于设计示例，不作为完整数据夹具使用。
 
-新适配必须覆盖旧持久任务的迁移：有本地音频的未完成记录可经用户明确选择新建任务重发；不得原地改写已发布 final.json。代码、模拟服务和夹具更新后重跑 CI，再执行真实联调。本次文档更新不生成新 APK，也不使旧 APK 自动兼容。
+该提交尚无 `tests/fixtures/protocol_v1/`。待电脑端发布滚动清单、最终清单、结果索引、完成标记四份正式 JSON 和字段说明后，仍须原样复制并增加 Kotlin 字段断言；另补 probe 响应／回执样例。回执内部字段名尚未定稿：当前实现校验 `protocol_version`，并在回执顶层值中绑定本次探测摘要，没有猜定摘要字段名；就绪按正式 probe 响应判断，时间字段未做格式断言。
+
+Room 7→8 迁移将旧协议未完成任务暂停，已完成缓存保留。用户可明确选择复制音频到新任务重新转写；原记录、原稿、笔记及已发布 final.json 保留，不原地重写。代码和模拟服务随新契约更新，CI 与真实联调分别记录。

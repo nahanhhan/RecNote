@@ -49,12 +49,12 @@ class RemoteRepository(private val graph: AppGraph) {
         enqueue(id)
     }
     suspend fun restore() {
-        graph.dao.pendingRemoteSessions().filter { it.contractRevision == 2 && it.state !in setOf("paused", "failed", "cancelled") }.forEach { enqueue(it.lessonId) }
+        graph.dao.pendingRemoteSessions().filter { it.contractRevision == 2 && it.state !in setOf("paused", "failed", "cancelled", "terminal") }.forEach { enqueue(it.lessonId) }
         graph.dao.remoteCancellations().filter { it.state in setOf("pending", "retrying") }.forEach { RemoteCancelWorker.enqueue(graph.app, it.lessonId) }
     }
     suspend fun configurationChanged() {
         graph.dao.pendingRemoteSessions().forEach { value ->
-            if (value.configVersion != graph.settings.remoteVersion())
+            if (value.state !in setOf("cancelled", "terminal") && value.configVersion != graph.settings.remoteVersion())
                 update(value.lessonId) { it.copy(state = "paused", error = "连接配置已改变；恢复原配置后点击重试") }
         }
         graph.dao.remoteCancellations().forEach { value ->
@@ -105,7 +105,7 @@ class RemoteRepository(private val graph: AppGraph) {
             stop(newId)
             RemoteCancelWorker.enqueue(graph.app, id)
             newId
-        } finally { if (!committed) directory.deleteRecursively() }
+        } finally { if (!committed) withContext(NonCancellable) { if (graph.dao.lesson(newId) == null) directory.deleteRecursively() } }
     } }
     suspend fun cancel(id: String) {
         val session = graph.dao.remoteSession(id) ?: return
@@ -134,7 +134,7 @@ class RemoteRepository(private val graph: AppGraph) {
             else -> "电脑返回了未知状态，请核对协议版本"
         }
     }
-    suspend fun remove(id: String, previous: RemoteSessionEntity? = null) {
+    suspend fun remove(id: String) {
         RemoteUploadWorker.cancel(graph.app, id)
         // 删除录音的事务已经持久保存取消意图，此队列不依赖录音行。
         graph.dao.deleteRemoteChunks(listOf(id)); graph.dao.deleteRemoteSessions(listOf(id))
@@ -144,7 +144,7 @@ class RemoteRepository(private val graph: AppGraph) {
         val value = graph.dao.remoteSession(id) ?: return
         val lesson = graph.dao.lesson(id) ?: return
         if (graph.dao.remoteCancellation(id) == null) graph.dao.putRemoteCancellation(RemoteCancelEntity(
-            id, value.identity, value.configVersion, value.tokenCipher, lesson.title, lesson.sourceType))
+            id, value.identity, value.configVersion, value.tokenCipher, lesson.title.take(200), lesson.sourceType))
     }
     suspend fun retryCancellations() {
         graph.dao.remoteCancellations().filter { it.identity == graph.settings.remoteIdentity() }.forEach {
@@ -349,7 +349,17 @@ class RemoteRepository(private val graph: AppGraph) {
                 graph.dao.putRemoteChunk(stored.copy(transcriptSha = result.sha256, transcriptBytes = textBytes.size.toLong()))
             }
         }
-        update(id) { it.copy(indexRevision = index.revision, error = if (index.chunks.any { c -> c.status == "failed" }) "部分音频识别失败，可重试电脑识别" else "") }
+        val failed = index.chunks.firstOrNull { it.status == "failed" }
+        val detail = failed?.error as? JsonObject
+        val failure = when ((detail?.get("code") as? JsonPrimitive)?.contentOrNull) {
+            "audio_too_large" -> "音频块超过电脑体积上限，请检查分块或电脑限制"
+            "audio_format_invalid", "audio_decode_failed" -> "电脑无法读取音频格式，请检查原音频"
+            "audio_missing", "audio_sha256_mismatch" -> "电脑尚未取得完整音频，请检查云盘上传"
+            "transcript_upload_failed" -> "电脑识别后原稿回写失败，请检查云盘写权限"
+            "asr_failed" -> "电脑识别失败，可手动重试"
+            else -> if (failed == null) "" else "部分音频处理失败，请检查电脑任务状态"
+        }
+        update(id) { it.copy(indexRevision = index.revision, error = failure) }
         session = guard(id)
         if (!session.stopped || session.finalJson.isEmpty()) return@withLock
         val completeBytes = data.readRemote(root(id) + "/.transcripts", "complete.json", RemoteProtocol.MANIFEST_LIMIT) ?: return@withLock

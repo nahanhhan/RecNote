@@ -1,6 +1,6 @@
 # Voice2Note 与 RecNote 远程算力协作备忘录
 
-本文件按用户指定命名为 `Vec2Note_todo.md`，协作对象是 Voice2Note。对应 [提案](openspec/changes/add-remote-compute-mode/proposal.md) 与 [设计](openspec/changes/add-remote-compute-mode/design.md)。2026-11-04 根据用户提供的 `RecNote-Sync.md` 对齐电脑侧定稿约定；附件引用的 `add-rec-daemon` 设计和 `V2N-RecDaemon.md` 未随附，不能据此确认服务已实现或部署。当前 RecNote 代码和既有测试 APK 仍待适配。
+本文件按用户指定命名为 `Vec2Note_todo.md`，协作对象是 Voice2Note。对应 [提案](openspec/changes/add-remote-compute-mode/proposal.md) 与 [设计](openspec/changes/add-remote-compute-mode/design.md)。2026-11-04 根据用户提供的 `RecNote-Sync.md` 实施手机客户端，并读取对端 `e4b958f5d914efd9e03c0748528d1d7ec492d978` 的 `add-rec-daemon` 设计核对字段。已交付旧测试 APK 需要更新；电脑服务部署和真实联调另行验收。
 
 ## 1. 协作流程
 
@@ -17,7 +17,7 @@
 
 原参考提交 `c7e837c7563e95c224e021bb8000b9e0b4fb64e4` 的批处理入口与 `transcribe` 复用点属于历史调研。后续对接以电脑端 `add-rec-daemon` 定稿及原样例为准；RecNote 只实施手机客户端。
 
-电脑服务配置名为 **`rec-daemon.yaml`**，与批处理的 `config.yaml` 分离。服务配置包含监听、鉴权、OpenList、队列、流式体积上限、状态及本地工作目录，不含模型字段。具体配置字段名与体积上限由电脑端资料确认，不沿用先前提议的配置模板作为已定稿事实。
+电脑服务配置名为 **`rec-daemon.yaml`**，与批处理的 `config.yaml` 分离。监听、鉴权、OpenList、识别运行环境、队列、流式体积上限、状态及本地工作目录由电脑端维护；手机不传递电脑模型配置。实际部署的体积上限须在联调前确认。
 
 双端 WebDAV 根须对应同一真实云盘文件夹。`127.0.0.1` 各指自身设备；手机只发送根内相对路径，电脑拼接自己的云盘根。实际上传／下载路由在部署时核验。连接凭据保存在各自设备，任务 token 本地加密，不写云盘或日志。
 
@@ -38,9 +38,9 @@
 
 清单公共字段保留 `protocol_version, session_id, revision, sample_rate=16000, channels=1, encoding=pcm_s16le, chunks`；最终清单增加 `total_samples, chunk_count`，绑定完整连续样本集合。数据先写、索引后发布，revision 单调递增；最终清单摘要基于确切原始 UTF-8 字节。
 
-原稿索引公共字段保留 `protocol_version, session_id, revision, chunks`，结果条目沿用 `sequence, audio_sha256, status, path, bytes, sha256, error`，结果 path 改为云盘根相对路径。本次只删除音频条目 bytes，原稿结果字段待取得对端样例再次核对。原稿统一为识别文本加单个结尾换行，静音文件为一字节 `\n`；手机按原字节核验后去首尾空白判空。
+原稿索引公共字段为 `protocol_version, session_id, revision, chunks`，结果条目为 `sequence, audio_sha256, status, path, sha256, error`，没有 `bytes`；status 仅为 `completed/failed`，未完成块不入索引。结果 path 相对云盘根。原稿统一为识别文本加单个结尾换行，静音文件为一字节 `\n`；手机按原字节核验后去首尾空白判空。
 
-完成标记保留 `protocol_version, session_id, final_manifest_sha256, chunks`，手机核对最终清单和全部已保存原稿才标记完成。清单／索引接收上限保留 2 MiB，原稿保留 128 KiB；半写、缺失或校验不完整时等待／刷新，保留既有有效结果。
+完成标记为 `protocol_version, session_id, final_manifest_sha256, chunks`，其中每块仅含 `sequence, audio_sha256, path, sha256`；手机核对最终清单和全部已保存原稿才标记完成。清单／索引接收上限保留 2 MiB，原稿保留 128 KiB；半写、缺失或校验不完整时等待／刷新，保留既有有效结果。
 
 ## 4. 控制接口
 
@@ -49,7 +49,7 @@
 | 接口 | 输入 | 约定 |
 | --- | --- | --- |
 | `GET /api/v1/health` | Bearer 连接 token | 版本与服务就绪诊断 |
-| `POST /api/v1/probe` | `token, path, sha256` | 读入手机探测文件，写回回执；手机回读并校验响应 `receipt.sha256` |
+| `POST /api/v1/probe` | `protocol_version=1, token, path, sha256` | 读入手机探测文件，写回回执；手机回读并校验响应 `receipt.sha256` |
 | `POST /api/v1/sessions/start` | `protocol_version, token, session_id, cloud_path, title, source_type` | 签发独立 `session_token`，幂等复用同身份任务 |
 | `POST /api/v1/sessions/end` | 仅 `{ "token": "<session_token>" }` | 合法 token 恒成功，重复同样成功，等待最终清单 |
 | `GET /api/v1/sessions/<session_id>` | Bearer 任务 token | 任务诊断；URI 标识与 token 绑定 |
@@ -64,6 +64,7 @@ probe 响应为 `protocol_version, ok, asr_ready, model_loaded, read_ok, write_o
 
 ## 5. 待同步与联调检查
 
+- 字段对照来源：Voice2Note `e4b958f5d914efd9e03c0748528d1d7ec492d978` 的 `openspec/changes/add-rec-daemon/design.md`；其中三份 JSON 设计示例已原样复制至 RecNote 测试资源并加入 Kotlin 字段断言。health 使用 `storage_ready`，probe 请求包含 `protocol_version=1`。
 - 取得电脑端四份协议 JSON 原样例（滚动清单、最终清单、结果索引、完成标记）与字段说明，在 RecNote 测试资源中保留来源提交，使用 Kotlin 断言字段。
 - 补齐 probe 响应／回执内部字段和音频体积上限资料；当前同步清单未附这些内容。
 - 手机写入探测文件，电脑读入并验证；电脑写回回执，手机读回并核验；只读挂载不能测试成功。
