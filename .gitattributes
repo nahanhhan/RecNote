@@ -10,3 +10,5 @@ gradlew text eol=lf
 *.ttf binary
 *.woff binary
 *.woff2 binary
+core/src/test/resources/voice2note-protocol-v1/*.json -text
+core/src/test/resources/voice2note-protocol-v1/README.md -text

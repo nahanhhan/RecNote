@@ -1,0 +1,13 @@
+{
+  "protocol_version": 1,
+  "session_id": "3f2b8c1e-9a4d-4f7b-8e21-5c6d7a9b0e13",
+  "final_manifest_sha256": "5c7a1234567890abcdef1234567890abcdef1234567890abcdef123456789090",
+  "chunks": [
+    {
+      "sequence": 1,
+      "audio_sha256": "9f2c8e11a7b34058e2f6c1a904b7d8e1a2b3c4d5e6f708192a3b4c5d6e7f80e1",
+      "path": "RecNoteRemote/3f2b8c1e-9a4d-4f7b-8e21-5c6d7a9b0e13/.transcripts/000001.md",
+      "sha256": "ab12cd34ef5678901234567890abcdef1234567890abcdef1234567890ab127d"
+    }
+  ]
+}

@@ -306,10 +306,8 @@ class RemoteRepository(private val graph: AppGraph) {
             val receipt = requireNotNull(response.receipt)
             val raw = data.readRemote(directory, "$filename.receipt.json", RemoteProtocol.CONTROL_LIMIT) ?: error("电脑探测回执尚未写回，请稍后测试")
             check(RemoteProtocol.sha256(raw) == receipt.sha256) { "电脑探测回执摘要不匹配" }
-            val content = try { remoteJson.parseToJsonElement(raw.toString(Charsets.UTF_8)).jsonObject } catch (_: Exception) { error("探测回执格式无效") }
-            check(content["protocol_version"]?.jsonPrimitive?.intOrNull == 1) { "探测回执协议版本不匹配" }
-            // 文档尚未锁定探测摘要内部字段名；按值绑定本次随机探测，不猜测字段拼写。
-            check(content.values.any { it is JsonPrimitive && it.contentOrNull == probeHash }) { "探测回执不属于本次文件" }
+            val content = try { remoteJson.decodeFromString<RemoteProbeReceipt>(raw.toString(Charsets.UTF_8)) } catch (_: Exception) { error("探测回执格式无效") }
+            RemoteProtocol.receipt(content, path, probeHash)
             check(graph.settings.remoteIdentity() == identity) { "测试期间配置已改变，请重新测试" }
             response.model_loaded
         } finally { withContext(NonCancellable) { runCatching { data.deleteRemoteProbe(path) } } }

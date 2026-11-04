@@ -28,6 +28,8 @@ val remoteJson = Json { encodeDefaults = true; ignoreUnknownKeys = true }
     val chunks: List<RemoteTranscript>, val protocol_version: Int = 1)
 @Serializable data class RemoteComplete(val session_id: String, val final_manifest_sha256: String,
     val chunks: List<RemoteCompletedChunk>, val protocol_version: Int = 1)
+@Serializable data class RemoteProbeReceipt(val protocol_version: Int, val probe_path: String,
+    val probe_sha256: String, val asr_ready: Boolean, val timestamp: String)
 
 object RemoteProtocol {
     const val CONTROL_LIMIT = 64 * 1024
@@ -86,4 +88,11 @@ object RemoteProtocol {
         require(value.chunks.size == final.chunks.size && value.chunks.all { received[it.sequence] == it.sha256 }) { "全部原稿尚未验证保存" }
     }
     fun fingerprint(value: String) { require(Regex("[0-9a-f]{64}").matches(value)) { "文件校验值无效" } }
+    fun receipt(value: RemoteProbeReceipt, path: String, sha: String) {
+        check(value.protocol_version == 1) { "探测回执协议版本不匹配" }
+        check(value.probe_path == path && value.probe_sha256 == sha) { "探测回执不属于本次文件" }
+        check(value.asr_ready) { "探测回执显示电脑识别尚未就绪" }
+        check(Regex("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z").matches(value.timestamp) &&
+            runCatching { java.time.Instant.parse(value.timestamp) }.isSuccess) { "探测回执时间格式无效" }
+    }
 }

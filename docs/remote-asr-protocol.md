@@ -1,6 +1,6 @@
 # RecNote 远程识别协议 v1
 
-本文于 2026-11-04 按用户提供的 `RecNote-Sync.md` 实施，并以 Voice2Note 提交 `e4b958f5d914efd9e03c0748528d1d7ec492d978` 的 `openspec/changes/add-rec-daemon/design.md` 核对具体字段。RecNote 已实现本页客户端契约；已交付 `a8e53ee` APK 使用旧契约，需要更新安装包。正式协议夹具、电脑服务部署和实际联调仍单独验收，记录见 [verification.md](../openspec/changes/add-remote-compute-mode/verification.md)。
+本文于 2026-11-04 按用户提供的 `RecNote-Sync.md` 实施，并以 Voice2Note 提交 `7dd3e1d3c88fdf25e67954a91ac7e3eedcfc206a` 的四份正式 JSON 样例和回执实现核对具体字段。RecNote 已实现本页客户端契约；已交付 `a8e53ee` APK 使用旧契约，需要更新安装包。电脑服务部署和实际联调另行验收，记录见 [verification.md](../openspec/changes/add-remote-compute-mode/verification.md)。
 
 ## 连接与路径
 
@@ -33,7 +33,7 @@
 5. 手机要求协议匹配及 `ok/asr_ready/read_ok/write_ok` 通过；核对返回的回执 path 恰为本次预期路径，回读其确切字节，核对 SHA-256 与响应 `receipt.sha256` 相同；再验证回执内部的协议版本和探测文件校验值绑定本次探测。
 6. `model_loaded=false` 表示尚未加载识别模型，提示首块可能较慢；其余检查通过时不单独判失败。HTTP 成功但 `ok=false` 直接显示原因，不进入退避重试。
 
-回执内容包含协议版本、探测文件校验值、识别就绪与时间；具体内部字段名和时间格式须取得对端样例后锁定。响应 `receipt.sha256` 是回执文件摘要，不是原探测文件摘要。只读挂载、回执缺失／半写、摘要不匹配均不能报告连接成功。测试清理只涉及本次探测文件和回执。
+回执内部字段固定为 `protocol_version, probe_path, probe_sha256, asr_ready, timestamp`。手机逐项核对版本、本次路径与探测文件摘要、识别就绪；timestamp 按 UTC `YYYY-MM-DDTHH:mm:ssZ` 校验格式。响应 `receipt.sha256` 是回执文件摘要，不是原探测文件摘要。只读挂载、回执缺失／半写、摘要不匹配均不能报告连接成功。测试清理只涉及本次探测文件和回执。
 
 ## 云盘文件
 
@@ -68,7 +68,7 @@ RecNoteRemote/_probe/<uuid>.bin.receipt.json
 
 ## 错误与重试
 
-错误继续使用 `code/message/retryable`，展示须脱敏。有效错误体的自动重试决策服从 `retryable`，不按 HTTP 状态自行猜测。无网络等待网络；无有效响应的暂时连接失败有限退避；连续五次可重试失败转人工。缺失／损坏结构化错误体提示人工检查。probe 的 `ok=false` 不作为退避故障，`audio_too_large` 必须不可重试且与格式错误分别呈现。
+HTTP 错误体为 `{"error":{"code":"…","message":"…","retryable":false}}`，云盘索引的 error 则直接包含 `code/message/retryable`；展示须脱敏。有效错误体的自动重试决策服从 `retryable`，不按 HTTP 状态自行猜测。无网络等待网络；无有效响应的暂时连接失败有限退避；连续五次可重试失败转人工。缺失／损坏结构化错误体提示人工检查。probe 的 `ok=false` 不作为退避故障，`audio_too_large` 必须不可重试且与格式错误分别呈现。
 
 | 类别 | 错误码 |
 | --- | --- |
@@ -77,7 +77,7 @@ RecNoteRemote/_probe/<uuid>.bin.receipt.json
 
 ## 配置、取消与恢复
 
-电脑服务配置为 `rec-daemon.yaml`，与批处理 `config.yaml` 分开，由电脑端维护服务、存储、识别运行环境、队列、体积限制及工作目录。手机不传递电脑识别模型配置；手机模型整理配置保持原流程。实际部署的体积上限须在联调前确认。
+电脑服务配置为 `rec-daemon.yaml`，与批处理 `config.yaml` 分开，由电脑端维护服务、存储、识别运行环境、队列、体积限制及工作目录。手机不传递电脑识别模型配置；手机模型整理配置保持原流程。电脑模板的 `MAX_AUDIO_CHUNK_BYTES=16777216`（16 MiB），探测文件上限 64 KiB；实际部署可调整音频上限，联调时核对。
 
 记录识别模式在创建时固定；电脑或网盘连接改变使旧任务暂停，恢复原配置后手动重试。笔记同步开关独立于音频上传。手机重启恢复封存块和控制通知，不自动开麦或冻结中断录音的最终集合。
 
@@ -85,8 +85,8 @@ RecNoteRemote/_probe/<uuid>.bin.receipt.json
 
 ## 样例与兼容状态
 
-已将上述 Voice2Note 设计文档中的清单、结果索引、完成标记三份 JSON 原样保存于 `core/src/test/resources/voice2note-design/`，登记来源提交，并由 `RemoteDesignContractTest` 断言各层字段。原文摘要是省略写法，这三份属于设计示例，不作为完整数据夹具使用。
+已将 Voice2Note 上述提交 `tests/fixtures/protocol_v1/` 的滚动清单、最终清单、结果索引、完成标记及 README 原字节保存于 `core/src/test/resources/voice2note-protocol-v1/`，登记来源并禁止 Git 换行转换。`RemoteProtocolFixtureTest` 对照原始文件摘要、各层字段拼写、序列化往返及跨文件块引用；没有运行电脑端 Python。原样例内容摘要为示例值，真实文件摘要链继续由合成数据测试验证。
 
-该提交尚无 `tests/fixtures/protocol_v1/`。待电脑端发布滚动清单、最终清单、结果索引、完成标记四份正式 JSON 和字段说明后，仍须原样复制并增加 Kotlin 字段断言；另补 probe 响应／回执样例。回执内部字段名尚未定稿：当前实现校验 `protocol_version`，并在回执顶层值中绑定本次探测摘要，没有猜定摘要字段名；就绪按正式 probe 响应判断，时间字段未做格式断言。
+回执字段另对照同提交 `src/voice2note/rec_daemon/storage.py` 的 `receipt_payload`。模拟接口使用相同字段，验证不相关字段中出现正确摘要仍不能替代 `probe_sha256`，并覆盖回执不就绪和非法时间。
 
 Room 7→8 迁移将旧协议未完成任务暂停，已完成缓存保留。用户可明确选择复制音频到新任务重新转写；原记录、原稿、笔记及已发布 final.json 保留，不原地重写。代码和模拟服务随新契约更新，CI 与真实联调分别记录。

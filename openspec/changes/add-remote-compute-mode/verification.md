@@ -36,7 +36,7 @@
 
 ## 尚待执行
 
-隔离模拟器运行仍在进行。只有源码编译通过的运行场景继续保留待验收状态，测试 APK 的生成不代表真实手机、真实网盘或实际电脑对端验收完成。
+历史提交 `a8e53ee` 的上述 CI 已完成，工程验证与隔离模拟器运行均成功。测试 APK 的生成和模拟器结果不代表真实手机、真实网盘或实际电脑对端验收完成。下文新契约实现单独验证。
 
 新增 22 个测试用例：协议 6 个、控制客户端 5 个、模拟对端运行测试 8 个、设置/加密/页面 2 个、隔离模拟器完整块/暂停尾块录音 1 个。既有迁移测试同步升级到数据库版本 7。
 
@@ -51,3 +51,21 @@
 新增第 7 组 6 项适配任务，按对端样例、数据格式、连接探测、控制错误、取消发件箱及完整回归拆分。对端四份 JSON／字段说明、回执内部字段及体积上限数值未随附件提供，已作为实现前资料依赖登记，未擅自复制或生成替代样例。附件引用的电脑侧设计定稿不等于其服务已运行。
 
 本次文档更新经官方 `openspec validate add-remote-compute-mode --strict` 校验通过，统一端侧 `uv run python -m checks` 8 项通过；这些结果不等于新契约实现或联调已通过。
+
+## RecNote-Sync 客户端实施（2026-11-04）
+
+已在提交 `ae4835b` 至 `18f115f` 落实 RecNote 客户端：
+
+| 范围 | 行为与证据 |
+| --- | --- |
+| 文件字段 | 根相对路径；音频与索引无 bytes；滚动清单不输出最终集合专用空字段；索引仅 completed/failed；完成条目独立类型，不携带 status/error；`RemoteProtocolTest`、`RemoteProtocolFixtureTest` |
+| 连接测试 | health 使用 storage_ready；probe 带协议版本，回读并核验预期回执路径与原字节摘要；冷模型仅提示，ok=false 不退避；`RemoteControlClientTest`、`RemoteModeTest` |
+| 错误／状态 | 六个接口 state；结构化 retryable 控制有限重试；终态提示新建任务；区分体积、格式、缺文件及回写失败；服务端原始错误信息不回显 |
+| 取消恢复 | 独立 Room 取消表与 WorkManager 队列；删除事务先存通知，保留原连接及加密 token；已完成任务同样取消；成功确认前不清除，配置改变暂停，迟到结果不重建录音 |
+| 升级兼容 | Room 7→8 暂停旧协议未完成任务，保留已完成缓存；用户确认后复制音频／照片到新任务，保留原记录及不可变 final；`DatabaseMigrationTest`、`RemoteModeTest.legacyTaskIsRebuiltWithoutModifyingItsPublishedFinalManifest` |
+
+最初对照 Voice2Note `e4b958f` 设计发现并修正索引 bytes、完成条目 status、health 字段分歧。提交前复查时，对端更新到 `7dd3e1d3c88fdf25e67954a91ac7e3eedcfc206a` 并发布正式四份 JSON 与字段说明，已原字节复制到 `core/src/test/resources/voice2note-protocol-v1/`，取代先前的三份设计示例。Kotlin 测试核对文件摘要、字段集合、往返及跨文件引用；不运行电脑端 Python。样例内容摘要为示例值，实际文件完整性链由另行合成数据验证。
+
+同提交的 storage.py 明确回执字段为 `protocol_version, probe_path, probe_sha256, asr_ready, timestamp`（UTC 秒精度）；已按字段校验并更新模拟服务及异常测试。模板音频上限为 16 MiB，探测上限 64 KiB。仅只读核对对端代码，没有改动 Voice2Note 源码，也没有执行真实双方联调。
+
+本地统一检查 8 项、官方 OpenSpec 严格校验及 diff 检查通过。`18f115f` 的 [完整 CI](https://github.com/nahanhhan/RecNote/actions/runs/41790003154) 已成功，实际运行 30 个隔离模拟器用例。四份正式样例与具名回执字段补齐后另跑最终 CI，结果完成后登记。旧 `a8e53ee` APK 不包含本节适配，不作为新契约测试包。

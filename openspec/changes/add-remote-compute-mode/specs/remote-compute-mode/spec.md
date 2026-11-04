@@ -81,3 +81,15 @@
 #### Scenario: 关闭笔记同步
 - **WHEN** 用户只关闭笔记 WebDAV 同步开关
 - **THEN** 笔记同步队列停止，当前远程录音的音频中转仍按原任务继续
+
+### Requirement: 回执内部字段与本次探测绑定
+
+手机 SHALL 按对端 `7dd3e1d` 的回执实现读取 `protocol_version, probe_path, probe_sha256, asr_ready, timestamp`，核对协议版本、本次探测路径与摘要、识别就绪。timestamp MUST 为有效 UTC `YYYY-MM-DDTHH:mm:ssZ`；原始回执文件 SHA-256 MUST 先与控制响应 receipt.sha256 相符。任意其他字段中的相同摘要 MUST NOT 替代 probe_sha256。
+
+#### Scenario: 其他字段碰巧含相同摘要
+- **WHEN** 回执中其他字段包含本次摘要但 probe_sha256 不匹配
+- **THEN** 手机拒绝本次连接测试成功
+
+#### Scenario: 回执未就绪或时间无效
+- **WHEN** 回执 asr_ready 为 false 或 timestamp 格式无效
+- **THEN** 手机显示连接测试失败且不启用成功状态

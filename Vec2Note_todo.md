@@ -1,6 +1,6 @@
 # Voice2Note 与 RecNote 远程算力协作备忘录
 
-本文件按用户指定命名为 `Vec2Note_todo.md`，协作对象是 Voice2Note。对应 [提案](openspec/changes/add-remote-compute-mode/proposal.md) 与 [设计](openspec/changes/add-remote-compute-mode/design.md)。2026-11-04 根据用户提供的 `RecNote-Sync.md` 实施手机客户端，并读取对端 `e4b958f5d914efd9e03c0748528d1d7ec492d978` 的 `add-rec-daemon` 设计核对字段。已交付旧测试 APK 需要更新；电脑服务部署和真实联调另行验收。
+本文件按用户指定命名为 `Vec2Note_todo.md`，协作对象是 Voice2Note。对应 [提案](openspec/changes/add-remote-compute-mode/proposal.md) 与 [设计](openspec/changes/add-remote-compute-mode/design.md)。2026-11-04 根据用户提供的 `RecNote-Sync.md` 实施手机客户端，并读取对端 `7dd3e1d3c88fdf25e67954a91ac7e3eedcfc206a` 的 `add-rec-daemon` 设计核对字段。已交付旧测试 APK 需要更新；电脑服务部署和真实联调另行验收。
 
 ## 1. 协作流程
 
@@ -58,15 +58,14 @@
 
 接口 state 仅使用 `waiting_source, receiving, draining, completed, failed, cancelled`。同标识不同身份／路径返回 `409 session_id_conflict`；已取消任务再次 start 返回 `409 session_terminal`，手机提示使用新任务。未知请求字段忽略，必填字段检查存在和类型，v1 不依赖未列明字段。
 
-probe 响应为 `protocol_version, ok, asr_ready, model_loaded, read_ok, write_ok, receipt{path, sha256}, error`。手机核对本次回执 path、实际回执文件摘要和回执内部的探测文件校验值；就绪及双向读写通过才成功。`model_loaded=false` 提示首块较慢，`ok=false` 显示原因而不自动退避。回执内部字段名与时间格式待对端样例确认。
+probe 响应为 `protocol_version, ok, asr_ready, model_loaded, read_ok, write_ok, receipt{path, sha256}, error`。手机核对本次回执 path、实际回执文件摘要和回执内部的探测文件校验值；就绪及双向读写通过才成功。`model_loaded=false` 提示首块较慢，`ok=false` 显示原因而不自动退避。回执内部字段为 `protocol_version, probe_path, probe_sha256, asr_ready, timestamp`，时间为 UTC 秒精度。
 
-错误采用脱敏的 `code/message/retryable`，重试服从 `retryable`，不能仅凭 HTTP 状态推断。完整接口和云盘错误码见 [协议说明](docs/remote-asr-protocol.md#错误与重试)，其中 `audio_too_large` 与 `audio_format_invalid` 分开呈现。普通文件等待不计失败次数。
+HTTP 错误体使用 `{"error":{"code":"…","message":"…","retryable":false}}`，云盘索引 error 内直接放这三个字段。手机脱敏展示，重试服从 `retryable`，不能仅凭 HTTP 状态推断。完整接口和云盘错误码见 [协议说明](docs/remote-asr-protocol.md#错误与重试)，其中 `audio_too_large` 与 `audio_format_invalid` 分开呈现。普通文件等待不计失败次数。
 
 ## 5. 待同步与联调检查
 
-- 字段对照来源：Voice2Note `e4b958f5d914efd9e03c0748528d1d7ec492d978` 的 `openspec/changes/add-rec-daemon/design.md`；其中三份 JSON 设计示例已原样复制至 RecNote 测试资源并加入 Kotlin 字段断言。health 使用 `storage_ready`，probe 请求包含 `protocol_version=1`。
-- 取得电脑端四份协议 JSON 原样例（滚动清单、最终清单、结果索引、完成标记）与字段说明，在 RecNote 测试资源中保留来源提交，使用 Kotlin 断言字段。
-- 补齐 probe 响应／回执内部字段和音频体积上限资料；当前同步清单未附这些内容。
+- 字段来源：Voice2Note `7dd3e1d3c88fdf25e67954a91ac7e3eedcfc206a` 的 `tests/fixtures/protocol_v1/`；四 JSON 及 README 已原字节复制到 RecNote 测试资源，Kotlin 断言摘要、字段及往返。health 使用 `storage_ready`，probe 请求包含 `protocol_version=1`。
+- 回执字段按同提交 storage.py 固定为 `protocol_version, probe_path, probe_sha256, asr_ready, timestamp`，UTC 时间格式 `YYYY-MM-DDTHH:mm:ssZ`。模板音频上限 16 MiB、探测上限 64 KiB；联调核对实际配置。
 - 手机写入探测文件，电脑读入并验证；电脑写回回执，手机读回并核验；只读挂载不能测试成功。
 - 手机发送完整块和最终集合，电脑识别并回写原稿；验证所有路径均相对云盘根且无重复拼接。
 - 验证尾块迟到、空音频集合、一字节静音原稿、半写文件、错误码／可重试标志、重复通知和电脑重启。

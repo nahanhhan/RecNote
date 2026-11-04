@@ -70,7 +70,12 @@ class RemoteModeTest {
                         check(Regex("RecNoteRemote/_probe/[a-zA-Z0-9-]+\\.bin").matches(relative))
                         val source = requireNotNull(files["/dav/$relative"])
                         check(RemoteProtocol.sha256(source) == probe["sha256"]!!.jsonPrimitive.content)
-                        val raw = buildJsonObject { put("protocol_version", 1); put("synthetic_probe_digest", RemoteProtocol.sha256(source)); put("asr_ready", true); put("synthetic_time", 0) }.toString().toByteArray()
+                        val raw = buildJsonObject {
+                            put("protocol_version", 1); put("probe_path", relative)
+                            put("probe_sha256", if (receiptFault == "unbound") "0".repeat(64) else RemoteProtocol.sha256(source))
+                            put("asr_ready", receiptFault != "notready"); put("timestamp", if (receiptFault == "time") "invalid" else "2026-11-04T00:00:00Z")
+                            if (receiptFault == "unbound") put("unrelated_digest", RemoteProtocol.sha256(source))
+                        }.toString().toByteArray()
                         if (receiptFault != "missing") files["/dav/$relative.receipt.json"] = raw
                         return json(buildJsonObject {
                             put("protocol_version", 1); put("ok", true); put("asr_ready", true); put("model_loaded", false); put("read_ok", true); put("write_ok", true)
@@ -227,7 +232,7 @@ class RemoteModeTest {
         assertTrue(files.keys.none { it.contains("/_probe/") })
     }
     @Test fun connectionRejectsMissingForeignOrCorruptedReceipt(): Unit = runBlocking {
-        for (fault in listOf("missing", "path", "sha")) {
+        for (fault in listOf("missing", "path", "sha", "unbound", "notready", "time")) {
             receiptFault = fault
             try { graph.remote.testConnection(); fail("Invalid receipt accepted: $fault") }
             catch (_: IllegalStateException) { }

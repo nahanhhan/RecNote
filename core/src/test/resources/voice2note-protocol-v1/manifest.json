@@ -1,0 +1,17 @@
+{
+  "protocol_version": 1,
+  "session_id": "3f2b8c1e-9a4d-4f7b-8e21-5c6d7a9b0e13",
+  "revision": 3,
+  "sample_rate": 16000,
+  "channels": 1,
+  "encoding": "pcm_s16le",
+  "chunks": [
+    {
+      "sequence": 1,
+      "path": "RecNoteRemote/3f2b8c1e-9a4d-4f7b-8e21-5c6d7a9b0e13/audio/000001.wav",
+      "start_sample": 0,
+      "sample_count": 480000,
+      "sha256": "9f2c8e11a7b34058e2f6c1a904b7d8e1a2b3c4d5e6f708192a3b4c5d6e7f80e1"
+    }
+  ]
+}

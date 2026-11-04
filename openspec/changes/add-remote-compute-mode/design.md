@@ -205,8 +205,8 @@ probe 成功响应字段为 `protocol_version, ok, asr_ready, model_loaded, read
 
 取消确认使用持久发件箱：删除手机录音前，保留任务身份、原连接引用和加密任务 token；手机录音清理后仍可重发取消，确认电脑已停止并清理工作目录后移除发件箱。已完成任务也发送取消。连接改变时暂停待发送记录，不能向新服务器或新账号发送旧任务；取消响应迟到不重建录音。
 
-已读取 Voice2Note 提交 `e4b958f5d914efd9e03c0748528d1d7ec492d978` 的 `openspec/changes/add-rec-daemon/design.md`，据此确认 health 使用 `storage_ready`、probe 带 `protocol_version=1`、结果索引无 bytes 且仅 completed/failed、完成标记块条目无 status/error。文档内三份 JSON 已原样复制并登记来源，Kotlin 测试断言字段；摘要省略值只用于字段测试，不用于实际数据校验。
+已对照 Voice2Note `7dd3e1d3c88fdf25e67954a91ac7e3eedcfc206a` 的四份 `tests/fixtures/protocol_v1/` JSON 与字段说明：health 使用 `storage_ready`、probe 带 `protocol_version=1`、结果索引无 bytes 且仅 completed/failed、完成标记块条目无 status/error。四 JSON 和 README 已原字节复制并登记来源，Kotlin 测试断言文件摘要、字段集合、往返及跨文件引用；示例内内容摘要不用于实际数据链校验。
 
-该提交尚无 `tests/fixtures/protocol_v1/` 四份正式 JSON 与字段说明，回执内部摘要／时间字段名也未明确。正式夹具仍为待办，不将合成测试冒充对端样例。当前回执检查协议版本、原始字节摘要及顶层值中的探测摘要绑定；时间字段格式待正式样例确认。旧协议未完成任务迁移为暂停，用户明确选择后复制到新标识重新转写，原记录、已缓存内容及原不可变最终清单保留。
+回执字段按同提交 storage.py 明确为 `protocol_version, probe_path, probe_sha256, asr_ready, timestamp`；手机在核对原始回执摘要后逐字段校验，时间为 UTC `YYYY-MM-DDTHH:mm:ssZ`。电脑模板音频上限 16 MiB、探测上限 64 KiB；实际部署可调整。旧协议未完成任务迁移为暂停，用户明确选择后复制到新标识重新转写，原记录、已缓存内容及原不可变最终清单保留。
 
 已交付 APK 和旧持久清单需要迁移策略：有原始本地音频的未完成任务可由手机显式新建任务重新发布新格式；不得原地改写已发布的不可变 `final.json`。新协议适配与回归验证完成前，不宣称旧包已兼容对端定稿。

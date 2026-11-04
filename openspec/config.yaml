@@ -19,7 +19,7 @@ context: |
   - 远程模式手机 SHALL 只封存大切片，按句切分交给 Voice2Note；电脑 SHALL 将完整大切片原稿回写 start 云盘路径下的 `.transcripts/`，手机进入详情查询完成结果。电脑 MUST 只做 ASR，服务 rec-daemon.yaml 独立于批处理 config.yaml，由电脑维护识别运行环境、服务／OpenList／队列／限制及工作目录；手机不传递电脑模型配置。LLM 整理 SHALL 沿用手机既有供应商配置、提示词、读图与手动发起流程，云端笔记整理设置在两种识别模式下均保留。
   - 本轮远程改造只实施 RecNote；电脑服务作为外部协议对端，用合成模拟服务验证手机行为，Voice2Note 代码改造与实际双方联调后续进行。远程凭据与日志边界自检 SHALL 注册到统一 checks 的 remote_safety 项。
   - 远程契约 SHALL 对齐用户提供的 RecNote-Sync.md：路径统一相对云盘根，音频条目无 bytes，状态完成值为 completed，probe 使用 path 且手机回读带摘要回执；控制错误按 retryable 决策，取消清理电脑本地且删除后仍保留取消待发送记录，云盘保留。
-  - 精确字段 SHALL 对照 Voice2Note e4b958f5d914efd9e03c0748528d1d7ec492d978 的 add-rec-daemon/design.md：health 为 storage_ready；probe 包含 protocol_version=1；结果索引条目无 bytes 且仅 completed/failed，完成标记块条目仅 sequence/audio_sha256/path/sha256。对端四份正式夹具尚未发布，设计示例断言不得冒称正式夹具验收。
+  - 精确字段 SHALL 对照 Voice2Note 7dd3e1d3c88fdf25e67954a91ac7e3eedcfc206a 的四份 protocol_v1 原 JSON 与字段说明，原字节复制并以 Kotlin 断言摘要、字段集合及往返；health 为 storage_ready，probe 包含 protocol_version=1，结果索引无 bytes 且仅 completed/failed，完成条目仅 sequence/audio_sha256/path/sha256。回执字段按同提交 storage.py 固定为 protocol_version/probe_path/probe_sha256/asr_ready/timestamp，时间为 UTC 秒精度，MUST 逐字段核对。
   - Debug 请求日志 MUST 省略 system/developer 消息正文；新增系统提示词配置及变量测试 MUST 使用合成内容，不打印或提交真实凭据。
   - PDF 与持久状态的运行验证 SHALL 在 CI 的 x86_64 隔离模拟器执行（应用包名 .uitest），上传合成 PDF/页面图片及报告；模拟器验证 MUST NOT 表述为用户手机、原生相机厂商行为或真实网盘验收。
 
