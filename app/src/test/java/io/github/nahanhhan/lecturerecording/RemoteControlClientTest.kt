@@ -59,9 +59,9 @@ class RemoteControlClientTest {
     @Test fun healthRequiresAsrCloudAndMatchingProtocol(): Unit = runBlocking {
         MockWebServer().use { server ->
             val client = RemoteControlClient(server.url("/").toString())
-            server.enqueue(MockResponse().setBody("{\"protocol_version\":1,\"asr_ready\":true,\"openlist_ready\":true}"))
+            server.enqueue(MockResponse().setBody("{\"protocol_version\":1,\"asr_ready\":true,\"storage_ready\":true}"))
             client.health("fake")
-            for (body in listOf("{\"protocol_version\":2}", "{\"protocol_version\":1,\"asr_ready\":false,\"openlist_ready\":true}")) {
+            for (body in listOf("{\"protocol_version\":2}", "{\"protocol_version\":1,\"asr_ready\":false,\"storage_ready\":true}")) {
                 server.enqueue(MockResponse().setBody(body))
                 try { client.health("fake"); fail("invalid health accepted") } catch (_: IllegalStateException) { }
             }

@@ -16,11 +16,14 @@ val remoteJson = Json { encodeDefaults = true; ignoreUnknownKeys = true }
     val channels: Int = 1, val encoding: String = "pcm_s16le",
     val total_samples: Long? = null, val chunk_count: Int? = null)
 @Serializable data class RemoteTranscript(val sequence: Int, val audio_sha256: String, val status: String,
-    val path: String = "", val bytes: Long = 0, val sha256: String = "", val error: JsonElement? = null)
+    val path: String = "", val sha256: String = "", val error: JsonElement? = null) {
+    fun completion() = RemoteCompletedChunk(sequence, audio_sha256, path, sha256)
+}
+@Serializable data class RemoteCompletedChunk(val sequence: Int, val audio_sha256: String, val path: String, val sha256: String)
 @Serializable data class RemoteIndex(val session_id: String, val revision: Long,
     val chunks: List<RemoteTranscript>, val protocol_version: Int = 1)
 @Serializable data class RemoteComplete(val session_id: String, val final_manifest_sha256: String,
-    val chunks: List<RemoteTranscript>, val protocol_version: Int = 1)
+    val chunks: List<RemoteCompletedChunk>, val protocol_version: Int = 1)
 
 object RemoteProtocol {
     const val CONTROL_LIMIT = 64 * 1024
@@ -64,9 +67,9 @@ object RemoteProtocol {
         value.chunks.forEach { result ->
             val source = audio.singleOrNull { it.sequence == result.sequence } ?: error("原稿包含未知音频块")
             require(result.audio_sha256 == source.sha256) { "原稿音频校验值不匹配" }
-            require(result.status in setOf("pending", "processing", "completed", "failed")) { "原稿状态无效" }
+            require(result.status in setOf("completed", "failed")) { "原稿状态无效" }
             if (result.status == "completed") {
-                require(result.path == transcriptPath(sessionId, result.sequence) && result.bytes in 1..TRANSCRIPT_LIMIT.toLong()) { "原稿路径或大小无效" }
+                require(result.path == transcriptPath(sessionId, result.sequence)) { "原稿路径无效" }
                 fingerprint(result.sha256)
             }
         }
@@ -75,8 +78,8 @@ object RemoteProtocol {
         manifest(final)
         require(final.total_samples != null && final.chunk_count != null) { "缺少最终音频集合" }
         require(value.protocol_version == 1 && value.session_id == final.session_id && value.final_manifest_sha256 == sha256(finalBytes)) { "完成标记与最终清单不匹配" }
-        index(RemoteIndex(value.session_id, 0, value.chunks, value.protocol_version), final.session_id, 0, final.chunks)
-        require(value.chunks.size == final.chunks.size && value.chunks.all { it.status == "completed" && received[it.sequence] == it.sha256 }) { "全部原稿尚未验证保存" }
+        index(RemoteIndex(value.session_id, 0, value.chunks.map { RemoteTranscript(it.sequence, it.audio_sha256, "completed", it.path, it.sha256) }, value.protocol_version), final.session_id, 0, final.chunks)
+        require(value.chunks.size == final.chunks.size && value.chunks.all { received[it.sequence] == it.sha256 }) { "全部原稿尚未验证保存" }
     }
     fun fingerprint(value: String) { require(Regex("[0-9a-f]{64}").matches(value)) { "文件校验值无效" } }
 }

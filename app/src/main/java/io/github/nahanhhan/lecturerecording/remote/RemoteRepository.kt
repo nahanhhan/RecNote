@@ -64,7 +64,7 @@ class RemoteRepository(private val graph: AppGraph) {
     suspend fun retry(id: String) {
         val session = requireNotNull(graph.dao.remoteSession(id))
         check(session.contractRevision == 2) { "旧协议任务需按新协议重建" }
-        check(session.state != "cancelled") { "此远程任务已取消，请新建录音" }
+        check(session.state !in setOf("cancelled", "terminal")) { "此远程任务已终结，请新建录音" }
         check(session.identity == graph.settings.remoteIdentity()) { "请恢复此录音原来的电脑和云盘配置" }
         update(id) { it.copy(configVersion = graph.settings.remoteVersion(), state = "pending", error = "", attempts = 0,
             retryRequested = it.tokenCipher.isNotBlank()) }
@@ -72,7 +72,8 @@ class RemoteRepository(private val graph: AppGraph) {
     }
     suspend fun restartLegacy(id: String): String = withContext(Dispatchers.IO) { graph.lessonOperations.withLock {
         val old = requireNotNull(graph.dao.lesson(id))
-        check(graph.dao.remoteSession(id)?.contractRevision == 1) { "此任务无需迁移" }
+        val previous = requireNotNull(graph.dao.remoteSession(id))
+        check(previous.contractRevision == 1 || previous.state == "terminal") { "此任务无需重建" }
         check(graph.recording.value.lessonId == null && graph.importing.value.lessonId == null && graph.dao.runningJobs(listOf(id)) == 0) { "请等待当前处理结束" }
         graph.settings.requireRemote()
         val newId = UUID.randomUUID().toString()
@@ -178,7 +179,6 @@ class RemoteRepository(private val graph: AppGraph) {
             true
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (error: Exception) {
-            if (error is RemoteFailure && error.errorCode == "session_terminal") { graph.dao.deleteRemoteCancellation(id); return@withLock true }
             val current = graph.dao.remoteCancellation(id) ?: return@withLock true
             val retry = matched() && error is java.io.IOException && (error !is RemoteFailure || error.retryable) && current.attempts < 4
             graph.dao.putRemoteCancellation(current.copy(state = if (!matched()) "paused" else if (retry) "retrying" else "failed",
@@ -193,7 +193,7 @@ class RemoteRepository(private val graph: AppGraph) {
         check(graph.dao.lesson(id) != null) { "录音已删除" }
         val value = requireNotNull(graph.dao.remoteSession(id)) { "远程任务不存在" }
         check(value.contractRevision == 2) { "旧协议任务已暂停，请按新协议重建任务" }
-        check(value.state != "cancelled") { "远程任务已取消" }
+        check(value.state !in setOf("cancelled", "terminal")) { "远程任务已终结，请创建新任务" }
         if (value.identity != graph.settings.remoteIdentity() || value.configVersion != graph.settings.remoteVersion()) {
             update(id) { it.copy(state = "paused", error = "连接配置已改变；恢复原配置后点击重试") }
             error("请恢复此录音原来的连接配置后点击重试")
@@ -226,14 +226,14 @@ class RemoteRepository(private val graph: AppGraph) {
     /** 每次 worker 有限处理已封存块；后续封存事件继续追加工作，不建立后台结果轮询。 */
     suspend fun upload(id: String): Boolean = executions.computeIfAbsent(id) { Mutex() }.withLock {
         val initial = graph.dao.remoteSession(id) ?: return@withLock true
-        if (initial.complete || initial.state in setOf("failed", "paused", "cancelled")) return@withLock true
+        if (initial.complete || initial.state in setOf("failed", "paused", "cancelled", "terminal")) return@withLock true
         try {
             var session = guard(id)
             val lesson = requireNotNull(graph.dao.lesson(id))
             val (remote, webDav) = connection(session)
             val control = RemoteControlClient(remote.baseUrl)
             if (session.tokenCipher.isEmpty()) {
-                val started = control.start(RemoteStart(token = remote.token, session_id = id, cloud_path = root(id), title = lesson.title, source_type = lesson.sourceType))
+                val started = control.start(RemoteStart(token = remote.token, session_id = id, cloud_path = root(id), title = lesson.title.take(200), source_type = lesson.sourceType))
                 guard(id); update(id) { it.copy(tokenCipher = graph.settings.encryptTaskToken(started.session_token)) }
             }
             session = guard(id)
@@ -285,7 +285,7 @@ class RemoteRepository(private val graph: AppGraph) {
                 (error is java.io.IOException && error !is RemoteFailure && error !is WebDavFailure)
             val retry = retryable && current.attempts < 4
             val safe = if (error is RemoteFailure || error is WebDavFailure || error is IllegalStateException || error is IllegalArgumentException) error.message.orEmpty() else "上传或控制通知失败，请检查连接后重试"
-            update(id) { it.copy(attempts = it.attempts + 1, state = if (retry) "retrying" else "failed", error = safe) }
+            update(id) { it.copy(attempts = it.attempts + 1, state = if (error is RemoteFailure && error.errorCode == "session_terminal") "terminal" else if (retry) "retrying" else "failed", error = safe) }
             !retry
         }
     }
@@ -327,11 +327,11 @@ class RemoteRepository(private val graph: AppGraph) {
             guard(id)
             val stored = requireNotNull(graph.dao.remoteChunks(id).singleOrNull { it.sequence == result.sequence })
             if (stored.transcriptSha.isNotEmpty()) {
-                check(stored.transcriptSha == result.sha256 && stored.transcriptBytes == result.bytes) { "已完成的原稿内容发生冲突" }
+                check(stored.transcriptSha == result.sha256) { "已完成的原稿内容发生冲突" }
                 continue
             }
             val textBytes = data.readRemote(result.path.substringBeforeLast('/'), result.path.substringAfterLast('/'), RemoteProtocol.TRANSCRIPT_LIMIT) ?: continue
-            check(textBytes.size.toLong() == result.bytes && RemoteProtocol.sha256(textBytes) == result.sha256) { "原稿尚未完整写入，请稍后刷新" }
+            check(RemoteProtocol.sha256(textBytes) == result.sha256) { "原稿尚未完整写入，请稍后刷新" }
             val text = try { Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(textBytes)).toString() }
                 catch (_: Exception) { error("原稿不是有效的 UTF-8 文字") }
             check(text.endsWith('\n') && !text.endsWith("\n\n") && (text.isNotBlank() || text == "\n")) { "原稿必须统一以单个换行结尾" }
@@ -346,7 +346,7 @@ class RemoteRepository(private val graph: AppGraph) {
                     graph.dao.putSegment(SegmentEntity(segmentId, id, chunk.startSample / 16, (chunk.startSample + chunk.sampleCount) / 16, chunk.path, text.trim(), "ready"))
                     graph.dao.revise(id)
                 }
-                graph.dao.putRemoteChunk(stored.copy(transcriptSha = result.sha256, transcriptBytes = result.bytes))
+                graph.dao.putRemoteChunk(stored.copy(transcriptSha = result.sha256, transcriptBytes = textBytes.size.toLong()))
             }
         }
         update(id) { it.copy(indexRevision = index.revision, error = if (index.chunks.any { c -> c.status == "failed" }) "部分音频识别失败，可重试电脑识别" else "") }
@@ -360,7 +360,7 @@ class RemoteRepository(private val graph: AppGraph) {
         val received = graph.dao.remoteChunks(id).filter { it.transcriptSha.isNotEmpty() }.associate { it.sequence to it.transcriptSha }
         RemoteProtocol.complete(complete, finalBytes, final, received)
         val indexed = index.chunks.associateBy { it.sequence }
-        check(complete.chunks.all { indexed[it.sequence]?.copy(error = null) == it.copy(error = null) }) { "完成标记与原稿索引不一致" }
+        check(complete.chunks.all { indexed[it.sequence]?.let { result -> result.status == "completed" && result.completion() == it } == true }) { "完成标记与原稿索引不一致" }
         guard(id)
         graph.database.withTransaction {
             check(graph.dao.lesson(id) != null && graph.dao.remoteSession(id) != null) { "录音已删除" }

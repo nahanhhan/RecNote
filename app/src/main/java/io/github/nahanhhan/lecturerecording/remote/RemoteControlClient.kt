@@ -37,12 +37,12 @@ class RemoteControlClient(address: String, client: OkHttpClient = OkHttpClient.B
     private val http = client.newBuilder().followRedirects(false).followSslRedirects(false).build()
     suspend fun health(token: String): JsonObject = request("health", bearer = token).also {
         check(it["protocol_version"]?.jsonPrimitive?.intOrNull == 1) { "电脑端协议版本不兼容" }
-        check(it["asr_ready"]?.jsonPrimitive?.booleanOrNull == true && it["openlist_ready"]?.jsonPrimitive?.booleanOrNull == true) { "电脑识别或 OpenList 尚未就绪" }
+        check(it["asr_ready"]?.jsonPrimitive?.booleanOrNull == true && it["storage_ready"]?.jsonPrimitive?.booleanOrNull == true) { "电脑识别或 OpenList 尚未就绪" }
     }
     suspend fun probe(token: String, path: String, sha: String): RemoteProbe {
         RemoteProtocol.relativePath(path)
         require(Regex("RecNoteRemote/_probe/[a-zA-Z0-9-]+\\.bin").matches(path)) { "探测路径无效" }
-        val response = request("probe", buildJsonObject { put("token", token); put("path", path); put("sha256", sha) })
+        val response = request("probe", buildJsonObject { put("protocol_version", 1); put("token", token); put("path", path); put("sha256", sha) })
         val result = try { remoteJson.decodeFromJsonElement<RemoteProbe>(response) }
             catch (_: Exception) { throw RemoteFailure(-1, "电脑探测响应字段不完整") }
         check(result.protocol_version == 1) { "电脑端协议版本不兼容" }

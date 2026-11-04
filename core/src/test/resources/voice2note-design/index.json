@@ -1,0 +1,15 @@
+{
+  "protocol_version": 1,
+  "session_id": "3f2b8c1e-9a4d-4f7b-8e21-5c6d7a9b0e13",
+  "revision": 7,
+  "chunks": [
+    {
+      "sequence": 1,
+      "audio_sha256": "9f2c...e1",
+      "status": "completed",
+      "path": "RecNoteRemote/3f2b8c1e-9a4d-4f7b-8e21-5c6d7a9b0e13/.transcripts/000001.md",
+      "sha256": "ab12...7d",
+      "error": null
+    }
+  ]
+}

@@ -50,7 +50,7 @@ class RemoteModeTest {
                 if (path.startsWith("/api/")) {
                     if (reject) return MockResponse().setResponseCode(403)
                     if (temporaryFailure) return json("""{"code":"internal_error","message":"synthetic","retryable":true}""").setResponseCode(503)
-                    if (path.endsWith("/health")) return json("{\"protocol_version\":1,\"asr_ready\":true,\"openlist_ready\":true}")
+                    if (path.endsWith("/health")) return json("{\"protocol_version\":1,\"asr_ready\":true,\"storage_ready\":true}")
                     val body = request.body.readUtf8()
                     if (path.endsWith("/probe")) {
                         val probe = remoteJson.parseToJsonElement(body).jsonObject
@@ -119,11 +119,11 @@ class RemoteModeTest {
         val raw = files["/dav/RecNoteRemote/$id/final.json"]!!
         val final = remoteJson.decodeFromString<RemoteManifest>(raw.toString(Charsets.UTF_8))
         val bytes = (text.trimEnd()+"\n").toByteArray(Charsets.UTF_8)
-        val result = RemoteTranscript(1, final.chunks.single().sha256, "completed", RemoteProtocol.transcriptPath(id, 1), bytes.size.toLong(), RemoteProtocol.sha256(bytes))
+        val result = RemoteTranscript(1, final.chunks.single().sha256, "completed", RemoteProtocol.transcriptPath(id, 1), RemoteProtocol.sha256(bytes))
         val path = "/dav/RecNoteRemote/$id/.transcripts/"
         files["/dav/" + result.path] = bytes
         files[path + "index.json"] = remoteJson.encodeToString(RemoteIndex(id, 1, listOf(result))).toByteArray()
-        files[path + "complete.json"] = remoteJson.encodeToString(RemoteComplete(id, RemoteProtocol.sha256(raw), listOf(result))).toByteArray()
+        files[path + "complete.json"] = remoteJson.encodeToString(RemoteComplete(id, RemoteProtocol.sha256(raw), listOf(result.completion()))).toByteArray()
         return result
     }
     @Test fun uploadEndAndRecoveryPreserveIndependentTokensAndExactFinalBytes(): Unit = runBlocking {

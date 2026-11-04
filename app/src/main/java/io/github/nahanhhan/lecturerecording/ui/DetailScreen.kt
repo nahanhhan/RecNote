@@ -154,9 +154,9 @@ import java.io.File
                 }, style = MaterialTheme.typography.bodySmall)
                 if (!state?.error.isNullOrBlank()) Text(state!!.error, color = MaterialTheme.colorScheme.error)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (state?.contractRevision == 1 && state.complete != true && !active && !importActive) TextButton(enabled = !migratingRemote, onClick = { confirmRemoteMigration = true }) { Text("按新协议重建任务") }
+                    if ((state?.contractRevision == 1 || state?.state == "terminal") && state?.complete != true && !active && !importActive) TextButton(enabled = !migratingRemote, onClick = { confirmRemoteMigration = true }) { Text("按新协议重建任务") }
                     TextButton(enabled = !remoteRefreshing, onClick = { remoteRefresh++ }) { Text(if (remoteRefreshing) "检查中" else "刷新原稿") }
-                    if (state?.contractRevision == 2 && state.complete != true && state.state != "cancelled") TextButton(enabled = !remoteRefreshing, onClick = {
+                    if (state?.contractRevision == 2 && state.complete != true && state.state !in setOf("cancelled", "terminal")) TextButton(enabled = !remoteRefreshing, onClick = {
                         scope.launch { try { graph.remote.retry(id); error = "已排队重试" } catch (exception: Exception) { error = exception.message ?: "重试失败" } }
                     }) { Text("重试远程任务") }
                     if (state?.tokenCipher?.isNotEmpty() == true && state.state != "cancelled" && state.complete != true) TextButton(enabled = !remoteRefreshing, onClick = {

@@ -16,6 +16,34 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class DatabaseMigrationTest {
+    @Test fun legacyRemoteSessionsPauseAndCancellationOutboxSurvivesLessonDeletion() {
+        val app = ApplicationProvider.getApplicationContext<LectureApp>()
+        check(app.packageName.endsWith(".uitest"))
+        val name = "migration-remote-v7.db"
+        app.deleteDatabase(name)
+        SQLiteDatabase.openOrCreateDatabase(app.getDatabasePath(name), null).use { db ->
+            db.execSQL("CREATE TABLE remote_sessions (lessonId TEXT PRIMARY KEY NOT NULL,complete INTEGER NOT NULL,state TEXT NOT NULL,error TEXT NOT NULL)")
+            db.execSQL("INSERT INTO remote_sessions VALUES ('pending',0,'receiving',''),('saved',1,'completed','')")
+            db.execSQL("CREATE TABLE lessons (id TEXT PRIMARY KEY NOT NULL)")
+            db.execSQL("INSERT INTO lessons VALUES ('pending')")
+            db.version = 7
+        }
+        val helper = FrameworkSQLiteOpenHelperFactory().create(SupportSQLiteOpenHelper.Configuration.builder(app)
+            .name(name).callback(object : SupportSQLiteOpenHelper.Callback(8) {
+                override fun onCreate(db: SupportSQLiteDatabase) = Unit
+                override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) { LectureDatabase.MIGRATION_7_8.migrate(db) }
+            }).build())
+        try {
+            val db = helper.writableDatabase
+            db.query("SELECT state,contractRevision FROM remote_sessions WHERE lessonId='pending'").use { c ->
+                assertTrue(c.moveToFirst()); assertEquals("paused", c.getString(0)); assertEquals(1, c.getInt(1))
+            }
+            db.query("SELECT state FROM remote_sessions WHERE lessonId='saved'").use { c -> assertTrue(c.moveToFirst()); assertEquals("completed", c.getString(0)) }
+            db.execSQL("INSERT INTO remote_cancellations VALUES ('pending','hash','1:1','cipher','synthetic','microphone','pending',0,'')")
+            db.execSQL("DELETE FROM lessons WHERE id='pending'")
+            db.query("SELECT tokenCipher FROM remote_cancellations WHERE lessonId='pending'").use { c -> assertTrue(c.moveToFirst()); assertEquals("cipher", c.getString(0)) }
+        } finally { helper.close(); app.deleteDatabase(name) }
+    }
     @Test fun oldRecordingsAndTablesSurviveMigrationFromVersionOneToFour(): Unit = runBlocking {
         val app = ApplicationProvider.getApplicationContext<LectureApp>()
         check(app.packageName.endsWith(".uitest"))

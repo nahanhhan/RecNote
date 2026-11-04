@@ -15,7 +15,7 @@ class RemoteProtocolTest {
     }
     private val hash = RemoteProtocol.sha256("audio".toByteArray())
     private fun audio(n: Int = 1) = (1..n).map { RemoteAudioChunk(it, RemoteProtocol.audioPath("session", it), (it - 1) * 16000L, 16000, hash) }
-    private fun result(n: Int = 1, text: String = "原稿\n") = (1..n).map { RemoteTranscript(it, hash, "completed", RemoteProtocol.transcriptPath("session", it), text.toByteArray().size.toLong(), RemoteProtocol.sha256(text.toByteArray())) }
+    private fun result(n: Int = 1, text: String = "原稿\n") = (1..n).map { RemoteTranscript(it, hash, "completed", RemoteProtocol.transcriptPath("session", it), RemoteProtocol.sha256(text.toByteArray())) }
     @Test fun pauseAndShortTailUseContinuousAudioTime() {
         val chunks = audio() + RemoteAudioChunk(2, RemoteProtocol.audioPath("session", 2), 16000, 640, hash)
         RemoteProtocol.manifest(RemoteManifest("session", 2, chunks, total_samples = 16640, chunk_count = 2))
@@ -33,17 +33,17 @@ class RemoteProtocolTest {
     @Test fun staleDuplicateAndOversizeResultsAreRejected() {
         assertFailsWith<IllegalArgumentException> { RemoteProtocol.index(RemoteIndex("session", 1, result()), "session", 2, audio()) }
         assertFailsWith<IllegalArgumentException> { RemoteProtocol.index(RemoteIndex("session", 2, result() + result()), "session", 0, audio()) }
-        assertFailsWith<IllegalArgumentException> { RemoteProtocol.index(RemoteIndex("session", 2, result().map { it.copy(bytes = 131073) }), "session", 0, audio()) }
+        assertFailsWith<IllegalArgumentException> { RemoteProtocol.index(RemoteIndex("session", 2, result().map { it.copy(status = "pending") }), "session", 0, audio()) }
     }
     @Test fun finalMarkerRequiresEveryVerifiedTranscriptAndExactFinalBytes() {
         val final = RemoteManifest("session", 2, audio(2), total_samples = 32000, chunk_count = 2)
         val bytes = remoteJson.encodeToString(final).toByteArray()
         val results = result(2)
-        val complete = RemoteComplete("session", RemoteProtocol.sha256(bytes), results)
+        val complete = RemoteComplete("session", RemoteProtocol.sha256(bytes), results.map { it.completion() })
         RemoteProtocol.complete(complete, bytes, final, results.associate { it.sequence to it.sha256 })
         assertFailsWith<IllegalArgumentException> { RemoteProtocol.complete(complete, bytes, final, mapOf(1 to results[0].sha256)) }
         assertFailsWith<IllegalArgumentException> { RemoteProtocol.complete(complete, bytes + byteArrayOf(10), final, results.associate { it.sequence to it.sha256 }) }
-        assertFailsWith<IllegalArgumentException> { RemoteProtocol.complete(complete.copy(chunks = results.take(1)), bytes, final, results.associate { it.sequence to it.sha256 }) }
+        assertFailsWith<IllegalArgumentException> { RemoteProtocol.complete(complete.copy(chunks = results.take(1).map { it.completion() }), bytes, final, results.associate { it.sequence to it.sha256 }) }
     }
     @Test fun silentAndZeroBlockSessionsHaveExplicitVerifiableCompletion() {
         val silent = result(text = "\n")
