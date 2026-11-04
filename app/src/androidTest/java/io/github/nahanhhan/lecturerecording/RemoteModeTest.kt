@@ -44,6 +44,8 @@ class RemoteModeTest {
     @Volatile private var reject = false
     @Volatile private var temporaryFailure = false
     @Volatile private var receiptFault = ""
+    @Volatile private var remoteState = "receiving"
+    @Volatile private var terminalStart = false
     @Before fun setup(): Unit = runBlocking {
         check(app.packageName.endsWith(".uitest"))
         graph.initialized.await()
@@ -56,6 +58,10 @@ class RemoteModeTest {
                     if (reject) return MockResponse().setResponseCode(403)
                     if (temporaryFailure) return json("""{"code":"internal_error","message":"synthetic","retryable":true}""").setResponseCode(503)
                     if (path.endsWith("/health")) return json("{\"protocol_version\":1,\"asr_ready\":true,\"storage_ready\":true}")
+                    if (request.method == "GET" && path.startsWith("/api/v1/sessions/")) {
+                        val id = path.substringAfterLast('/')
+                        return json("""{"session_id":"$id","state":"$remoteState"}""")
+                    }
                     val body = request.body.readUtf8()
                     if (path.endsWith("/probe")) {
                         val probe = remoteJson.parseToJsonElement(body).jsonObject
@@ -72,6 +78,7 @@ class RemoteModeTest {
                         }.toString())
                     }
                     if (path.endsWith("/start")) {
+                        if (terminalStart) return json("""{"error":{"code":"session_terminal","message":"synthetic","retryable":false}}""").setResponseCode(409)
                         val id = remoteJson.parseToJsonElement(body).jsonObject["session_id"]!!.jsonPrimitive.content
                         return json("{\"session_id\":\"$id\",\"session_token\":\"synthetic-$id\",\"state\":\"receiving\"}")
                     }
@@ -242,6 +249,26 @@ class RemoteModeTest {
         assertEquals("failed", graph.dao.remoteSession(id)!!.state)
         assertTrue(File(source.path).isFile)
         assertTrue(graph.dao.segments(id).isEmpty())
+    }
+    @Test fun allSixRemoteStatesAreDiagnosticAndDoNotBypassTranscriptVerification(): Unit = runBlocking {
+        val id = lesson(); chunk(id); graph.remote.stop(id); graph.remote.upload(id)
+        for ((state, hint) in mapOf("waiting_source" to "等待音频清单", "receiving" to "接收和识别", "draining" to "最后的音频",
+            "completed" to "刷新原稿", "failed" to "识别失败", "cancelled" to "已取消")) {
+            remoteState = state
+            assertTrue(graph.remote.diagnose(id).contains(hint))
+            assertFalse(graph.dao.remoteSession(id)!!.complete)
+        }
+    }
+    @Test fun terminalStartStopsRetriesAndRemainsTerminalAfterConnectionChange(): Unit = runBlocking {
+        val id = lesson(); chunk(id); terminalStart = true
+        assertTrue(graph.remote.upload(id))
+        assertEquals("terminal", graph.dao.remoteSession(id)!!.state)
+        assertTrue(graph.dao.remoteSession(id)!!.error.contains("新建"))
+        val count = server.requestCount
+        graph.settings.saveRemote(graph.settings.remote().copy(token = "changed-synthetic-token"))
+        graph.remote.configurationChanged()
+        assertEquals("terminal", graph.dao.remoteSession(id)!!.state)
+        assertTrue(graph.remote.upload(id)); assertEquals(count, server.requestCount)
     }
     @Test fun completedDeletionKeepsCancellationUntilRecoveryAndNeverRecreatesRecording(): Unit = runBlocking {
         val id = lesson(); chunk(id); graph.remote.stop(id); graph.remote.upload(id); publish(id); graph.remote.refresh(id)

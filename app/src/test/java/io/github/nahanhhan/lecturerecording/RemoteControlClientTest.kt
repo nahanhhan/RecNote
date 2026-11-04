@@ -13,7 +13,7 @@ class RemoteControlClientTest {
         MockWebServer().use { server ->
             val client = RemoteControlClient(server.url("/").toString())
             for ((http, retry) in listOf(503 to false, 400 to true)) {
-                server.enqueue(MockResponse().setResponseCode(http).setBody("""{"code":"internal_error","message":"private-secret","retryable":$retry}"""))
+                server.enqueue(MockResponse().setResponseCode(http).setBody("""{"error":{"code":"internal_error","message":"private-secret","retryable":$retry}}"""))
                 try { client.action("retry", "fake"); fail() }
                 catch (error: RemoteFailure) { assertEquals(retry, error.retryable); assertFalse(error.message!!.contains("private-secret")) }
             }
