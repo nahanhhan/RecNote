@@ -162,6 +162,10 @@ class RemoteModeTest {
         val bytes = files.remove(key)!!
         try { graph.remote.refresh(id) } catch (_: IllegalArgumentException) { }
         assertFalse(graph.dao.remoteSession(id)!!.complete)
+        files[key] = bytes.copyOf(bytes.size - 1)
+        try { graph.remote.refresh(id); fail("Truncated transcript accepted") } catch (_: IllegalStateException) { }
+        assertFalse(graph.dao.remoteSession(id)!!.complete)
+        assertTrue(graph.dao.segments(id).isEmpty())
         files[key] = bytes
         graph.remote.refresh(id)
         assertTrue(graph.dao.remoteSession(id)!!.complete)
@@ -172,6 +176,14 @@ class RemoteModeTest {
         graph.remote.refresh(id)
         assertEquals("用户编辑后的原稿", graph.dao.segments(id).single().text)
         assertEquals(revision, graph.dao.lesson(id)!!.revision)
+        assertTrue(graph.dao.jobs(id).isEmpty())
+    }
+    @Test fun oneNewlineSilentTranscriptCompletesWithoutInventingText(): Unit = runBlocking {
+        val id = lesson(); chunk(id); graph.remote.stop(id); graph.remote.upload(id); publish(id, "")
+        assertArrayEquals(byteArrayOf(10), files["/dav/RecNoteRemote/$id/.transcripts/000001.md"])
+        graph.remote.refresh(id)
+        assertTrue(graph.dao.remoteSession(id)!!.complete)
+        assertEquals("", graph.dao.segments(id).single().text)
         assertTrue(graph.dao.jobs(id).isEmpty())
     }
     @Test fun accountChangePausesOldTaskAndSwitchingSyncDoesNot(): Unit = runBlocking {
@@ -286,6 +298,20 @@ class RemoteModeTest {
         assertTrue(notifications.any { it.first.endsWith("/cancel") && it.second.contains("synthetic-$id") })
         assertNotNull(files["/dav/RecNoteRemote/$id/final.json"])
         assertNull(graph.dao.lesson(id))
+    }
+    @Test fun cancellationPausesOnConnectionChangeAndOnlyResumesWithOriginalIdentity(): Unit = runBlocking {
+        val id = lesson(); chunk(id); graph.remote.stop(id); graph.remote.upload(id)
+        graph.remote.prepareRemoval(id)
+        val config = graph.settings.remote()
+        graph.settings.saveRemote(config.copy(token = "different-synthetic-token"))
+        graph.remote.configurationChanged()
+        assertEquals("paused", graph.dao.remoteCancellation(id)!!.state)
+        val count = server.requestCount
+        assertTrue(graph.remote.sendCancellation(id)); assertEquals(count, server.requestCount)
+        graph.settings.saveRemote(config)
+        graph.remote.retryCancellations()
+        assertTrue(graph.remote.sendCancellation(id))
+        assertNull(graph.dao.remoteCancellation(id))
     }
     @Test fun legacyTaskIsRebuiltWithoutModifyingItsPublishedFinalManifest(): Unit = runBlocking {
         val id = lesson(); val source = chunk(id)
