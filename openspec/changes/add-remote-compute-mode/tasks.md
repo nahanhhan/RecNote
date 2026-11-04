@@ -1,6 +1,6 @@
 # Tasks
 
-本 change 只规划，以下任务均未实施。每批实现及其测试一起交付，以 CI 的 `:core:test`、`:app:testDebugUnitTest`、`:app:compileDebugAndroidTestKotlin`、`:app:lintDebug`、`:app:assembleDebug` 为工程验收；运行时场景需要 CI 模拟器实际执行，不能把测试源码编译当执行通过。端侧静态验证只在 `scripts/tests` 使用 `uv run python -m checks`，OpenSpec 使用官方校验；新增端侧检查同批注册，规范变更同批同步 `openspec/config.yaml`。
+本轮范围为 RecNote 客户端实现与合成模拟服务测试；Voice2Note 代码改造和实际双方联调留待后续。当前实现及测试源码状态见 [verification.md](verification.md)，在相应 CI 和运行测试通过前，下面的验收项保持未勾选。每批实现及其测试一起交付，以 CI 的 `:core:test`、`:app:testDebugUnitTest`、`:app:compileDebugAndroidTestKotlin`、`:app:lintDebug`、`:app:assembleDebug` 为工程验收；运行时场景需要 CI 模拟器实际执行，不能把测试源码编译当执行通过。端侧静态验证只在 `scripts/tests` 使用 `uv run python -m checks`，OpenSpec 使用官方校验；新增端侧检查同批注册，规范变更同批同步 `openspec/config.yaml`。
 
 ## 1. 模式配置、记录迁移与设置界面
 
@@ -44,6 +44,8 @@
 - [ ] 5.6 同批更新 README 的手机手动整理、ASR／LLM 配置独立及云盘保留说明，核对系统提示词规范无需 delta；执行端侧检查并记录本批 CI 及实际模拟器导出证据。
 
 ## 6. 双仓库集成与人工真机验收
+
+6.1、6.3、6.4 按用户确认范围留到后续；6.2 的 RecNote 模拟对端测试源码随本轮交付，实际执行待 CI。
 
 - [ ] 6.1 与 Voice2Note 按 `Vec2Note_todo.md` 固定 ASR 协议 v1 和合成夹具；集成验证纯 ASR 配置可启动、整块识别与 `.transcripts/` 回写，电脑从不调用 LLM，手机按钮直接使用现有供应商。
 - [ ] 6.2 在 CI 模拟服务／隔离模拟器中跑完断网补传、结束先到、电脑重启、部分失败、两手机隔离、重复刷新、编辑保护和手机原整理的整条流程，保存报告；仪器源码编译不能代替实际执行。
