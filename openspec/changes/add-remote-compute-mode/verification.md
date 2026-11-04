@@ -4,7 +4,7 @@
 
 2026-11-04 按用户确认，只改 RecNote 客户端，保留现有手机整理与导出流程。实际电脑服务改造、双方联调和人工真机验收后续进行。未修改 Voice2Note 仓库。
 
-开始前已 `fetch origin`，确认当前分支包含 `origin/main`，没有落后提交。工作分支为 `codex/remote-compute-mode`。第一批实现与测试保存在本地提交 `cf398a4`；边界修正与隔离测试保存在 `0c3c3ff`；本记录和协议随独立文档提交保存。没有推送或合并主分支。
+开始前已 `fetch origin`，确认当前分支包含 `origin/main`，没有落后提交。工作分支为 `codex/remote-compute-mode`。第一批实现与测试保存在本地提交 `cf398a4`；边界修正与隔离测试保存在 `0c3c3ff`；协议记录提交为 `a8e53ee`。用户随后明确授权推送，现已上传至同名云端分支，保留主分支。
 
 ## 代码与测试源码
 
@@ -24,11 +24,20 @@
 - `openspec validate add-remote-compute-mode --strict`：通过。
 - `git diff --check`：通过。
 - 用户提供的 `http://localhost:5244/`：HTTP 200，服务在线；`PROPFIND /dav/`：HTTP 401，WebDAV 需要登录。只进行了只读可达性检查，没有上传真实录音，也没有完成真实网盘读写测试。
+- [CI 工程验证](https://github.com/nahanhhan/RecNote/actions/runs/41778363066/job/126403893862)：提交 `a8e53eeda4a43f1ed43f6a65066199516cfff03f` 的核心/Android 单测、仪器测试源码编译、lint、debug APK 构建通过。源码编译不等同仪器测试运行通过。
+
+## 已交付测试 APK
+
+按用户请求，从上述 CI 下载 `lecture-recording-debug` 产物并核对 ZIP 摘要与 GitHub 元数据一致。安装包为 `.build-cache/apk/recnote-remote-a8e53ee.apk`，94,831,771 字节；APK SHA-256 为 `0b71444080a7f3293916b66b9adad18eaba1ccc445410090acc3ad45131fa247`。
+
+使用 Google 官方 apksig 8.13.2 实际验证 APK v2 签名通过，证书 SHA-256 与仓库 `debug.keystore` 及既有发布包记录一致：`4149018b4ba6e74ff27c12e96d775fe01bbab4b510275509c1a7225a89f81f3e`。
+
+实际读取安装包清单：应用 ID `io.github.nahanhhan.lecturerecording`，版本名仍为 `0.1.9-alpha`、versionCode 8，ABI 为 arm64-v8a，debuggable 为 true。这是包含远程模式的分支测试包，不是旧版发布 APK；覆盖安装会执行 Room 6→7 迁移。用户测试前应备份重要笔记。没有发布新 Release 或覆盖旧版资产。
 
 ## 尚待执行
 
-Kotlin 编译、单元测试、lint、APK 构建及隔离模拟器运行均待 CI。测试源码尚不能证明这些行为已通过；当前不标记任务验收完成，不发布 APK。
+隔离模拟器运行仍在进行。只有源码编译通过的运行场景继续保留待验收状态，测试 APK 的生成不代表真实手机、真实网盘或实际电脑对端验收完成。
 
 新增 22 个测试用例：协议 6 个、控制客户端 5 个、模拟对端运行测试 8 个、设置/加密/页面 2 个、隔离模拟器完整块/暂停尾块录音 1 个。既有迁移测试同步升级到数据库版本 7。
 
-自动审批拒绝了测试分支推送，理由为用户目前明确授权本地 Git 记录，将代码发送至 GitHub 需要进一步确认。因此只保存本地提交；获得测试分支推送授权后可运行 `.github/workflows/android.yml`。实际对端联调与目标手机/真实网盘验收仍留待后续。
+早前自动审批因用户当时只明确授权本地 Git 记录而拒绝推送；用户随后明确授权上传到 `https://github.com/nahanhhan/RecNote.git`，该限制已解除。实际对端联调与目标手机/真实网盘验收仍留待后续。
