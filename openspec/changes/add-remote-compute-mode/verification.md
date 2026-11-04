@@ -71,3 +71,9 @@
 本地统一检查 8 项、官方 OpenSpec 严格校验及 diff 检查通过。正式样例版 `6fa194719f9fe0fd9245701963650e9a3c8474cc` 的 [最终 CI](https://github.com/nahanhhan/RecNote/actions/runs/41792866872) 已全部成功：核心及 Android 单元测试、仪器测试源码编译、lint、APK 构建，以及实际运行 30 个隔离模拟器用例。四份原样例字段／原字节摘要断言与具名回执异常检查均通过。
 
 本轮第 7 组 6/6 项按 RecNote 客户端范围验收完成。整份提案清单为 6/36 项勾选，原有分组的完整验收与第 6 组双方联调／人工真机验收保持各自状态，没有批量代勾；不将客户端模拟服务结果视为实际电脑、真实云盘或目标手机验收。旧 `a8e53ee` APK 不包含本节适配；新 APK 来自上述 CI 的 `lecture-recording-debug` 产物。
+
+## 新契约测试 APK 交付
+
+按用户请求，下载 `6fa1947` 的 CI 产物 `13304616259` 并核对 ZIP SHA-256 与 GitHub 元数据相同：`7347227a41b6b4497ee101f4b910d03dd45292f4f113865c5237f84d5ef32b36`。安装包保存为 `.build-cache/apk/recnote-remote-6fa1947.apk`，94,930,075 字节，APK SHA-256 为 `666deefdc02e364b823564be18f24bd413654205350b8e6386ab5ff381c09f84`。
+
+使用 Google apksig 8.13.2 实际验证 v2 签名通过；另从当前仓库 `debug.keystore` 导出证书，确认与 APK 签名证书 SHA-256 相同：`4149018b4ba6e74ff27c12e96d775fe01bbab4b510275509c1a7225a89f81f3e`。附带本地 JSON 校验记录，未更换签名密钥，未发布 Release。
