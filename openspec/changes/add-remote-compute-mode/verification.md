@@ -42,7 +42,7 @@
 
 早前自动审批因用户当时只明确授权本地 Git 记录而拒绝推送；用户随后明确授权上传到 `https://github.com/nahanhhan/RecNote.git`，该限制已解除。实际对端联调与目标手机/真实网盘验收仍留待后续。
 
-## RecNote-Sync 目标契约更新（2026-11-04）
+## RecNote-Sync 目标契约更新（22f84e7，实施前记录）
 
 根据用户提供的 `RecNote-Sync.md` 同步 15 项定稿差异，更新提案、设计、相关 spec、任务、全局 context 及两份协议／交接说明。本次只改文档，未修改 Kotlin／测试实现，未重新构建 APK，也未将新增适配任务勾选为完成。
 
@@ -54,7 +54,7 @@
 
 ## RecNote-Sync 客户端实施（2026-11-04）
 
-已在提交 `ae4835b` 至 `18f115f` 落实 RecNote 客户端：
+已在提交 `ae4835b` 至 `6fa1947` 落实 RecNote 客户端：
 
 | 范围 | 行为与证据 |
 | --- | --- |
@@ -68,4 +68,6 @@
 
 同提交的 storage.py 明确回执字段为 `protocol_version, probe_path, probe_sha256, asr_ready, timestamp`（UTC 秒精度）；已按字段校验并更新模拟服务及异常测试。模板音频上限为 16 MiB，探测上限 64 KiB。仅只读核对对端代码，没有改动 Voice2Note 源码，也没有执行真实双方联调。
 
-本地统一检查 8 项、官方 OpenSpec 严格校验及 diff 检查通过。`18f115f` 的 [完整 CI](https://github.com/nahanhhan/RecNote/actions/runs/41790003154) 已成功，实际运行 30 个隔离模拟器用例。四份正式样例与具名回执字段补齐后另跑最终 CI，结果完成后登记。旧 `a8e53ee` APK 不包含本节适配，不作为新契约测试包。
+本地统一检查 8 项、官方 OpenSpec 严格校验及 diff 检查通过。正式样例版 `6fa194719f9fe0fd9245701963650e9a3c8474cc` 的 [最终 CI](https://github.com/nahanhhan/RecNote/actions/runs/41792866872) 已全部成功：核心及 Android 单元测试、仪器测试源码编译、lint、APK 构建，以及实际运行 30 个隔离模拟器用例。四份原样例字段／原字节摘要断言与具名回执异常检查均通过。
+
+本轮第 7 组 6/6 项按 RecNote 客户端范围验收完成。整份提案清单为 6/36 项勾选，原有分组的完整验收与第 6 组双方联调／人工真机验收保持各自状态，没有批量代勾；不将客户端模拟服务结果视为实际电脑、真实云盘或目标手机验收。旧 `a8e53ee` APK 不包含本节适配；新 APK 来自上述 CI 的 `lecture-recording-debug` 产物。
