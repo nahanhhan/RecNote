@@ -1,6 +1,8 @@
 package io.github.nahanhhan.lecture.core
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import java.io.File
@@ -11,10 +13,12 @@ val remoteJson = Json { encodeDefaults = true; ignoreUnknownKeys = true }
 
 @Serializable data class RemoteAudioChunk(val sequence: Int, val path: String, val start_sample: Long,
     val sample_count: Long, val sha256: String)
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable data class RemoteManifest(val session_id: String, val revision: Long,
     val chunks: List<RemoteAudioChunk>, val protocol_version: Int = 1, val sample_rate: Int = 16000,
     val channels: Int = 1, val encoding: String = "pcm_s16le",
-    val total_samples: Long? = null, val chunk_count: Int? = null)
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val total_samples: Long? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val chunk_count: Int? = null)
 @Serializable data class RemoteTranscript(val sequence: Int, val audio_sha256: String, val status: String,
     val path: String = "", val sha256: String = "", val error: JsonElement? = null) {
     fun completion() = RemoteCompletedChunk(sequence, audio_sha256, path, sha256)

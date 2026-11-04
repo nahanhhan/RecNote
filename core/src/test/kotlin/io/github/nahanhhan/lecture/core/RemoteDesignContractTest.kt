@@ -15,7 +15,7 @@ class RemoteDesignContractTest {
         val chunk = source["chunks"]!!.jsonArray.single().jsonObject
         assertEquals(setOf("sequence", "path", "start_sample", "sample_count", "sha256"), chunk.keys)
         val decoded = remoteJson.decodeFromJsonElement<RemoteManifest>(source)
-        assertEquals(source, remoteJson.encodeToJsonElement(decoded).jsonObject.filterKeys { it !in setOf("total_samples", "chunk_count") }.let { JsonObject(it) })
+        assertEquals(source, remoteJson.encodeToJsonElement(decoded))
     }
     @Test fun indexKeysMatchUpstreamWithoutByteCount() {
         val source = sample("index")
