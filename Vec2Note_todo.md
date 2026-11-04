@@ -1,111 +1,75 @@
 # Voice2Note 与 RecNote 远程算力协作备忘录
 
-本文件按用户指定命名为 `Vec2Note_todo.md`，协作对象是 [Voice2Note](https://github.com/zhangtony239/Voice2Note)。对应 RecNote 提案为 [add-remote-compute-mode](openspec/changes/add-remote-compute-mode/proposal.md)，完整技术约定见 [design.md](openspec/changes/add-remote-compute-mode/design.md)。这些是待实现约定，尚未宣称两端可联通。
+本文件按用户指定命名为 `Vec2Note_todo.md`，协作对象是 Voice2Note。对应 [提案](openspec/changes/add-remote-compute-mode/proposal.md) 与 [设计](openspec/changes/add-remote-compute-mode/design.md)。2026-11-04 根据用户提供的 `RecNote-Sync.md` 对齐电脑侧定稿约定；附件引用的 `add-rec-daemon` 设计和 `V2N-RecDaemon.md` 未随附，不能据此确认服务已实现或部署。当前 RecNote 代码和既有测试 APK 仍待适配。
 
-## 1. 已确认的协作流程
+## 1. 协作流程
 
-1. 手机采集／解码并封存约 30 秒大切片，经手机本机 OpenList 上传云盘。
-2. 手机用小型开始请求通知电脑，包含鉴权、任务标识和云盘相对路径；电脑通过自己的本机 OpenList 轮询下载。
-3. V2N 对每个大切片使用已有按句算法，等整块完成后把原稿回写到 start 路径下 `.transcripts/`。
-4. 手机停止时发送只有任务 token 的结束请求。电脑继续等最终清单和迟到文件，直到全部原稿写回。
-5. 手机进入录音详情或用户点刷新，检查 `.transcripts/` 并取回完整块原稿；用户可核对、编辑。
+1. 手机采集／解码并封存约 30 秒完整音频，经本机 OpenList 上传云盘。
+2. 手机发送开始请求，携带连接 token、独立任务标识和相对云盘根的任务目录；电脑签发独立任务 token 并主动轮询音频。
+3. 电脑内部按句处理，每个大块完成后回写完整原稿与结果索引。
+4. 手机停止时发送只有任务 token 的结束请求；电脑继续等最终清单和迟到音频，全部回写才发布完成标记。
+5. 手机进入详情或手动刷新时取回完整原稿并核验最终集合；每块原稿映射为一个本地来源段落。
+6. 手机删除任务时持久发送取消；电脑停止并清理本地工作目录，云盘副本保留。
 
-电脑服务负责音频识别与原稿回写。公开电脑 API 承载控制请求，音频与原稿经云盘中转。
+电脑负责音频识别和原稿回写。公开 API 承载控制请求，音频及原稿经云盘中转。
 
-## 2. 已核对的 V2N 现状与改造位置
+## 2. 服务与配置
 
-参考提交 `c7e837c7563e95c224e021bb8000b9e0b4fb64e4`，实现前再次检查该仓库的新提交：
+原参考提交 `c7e837c7563e95c224e021bb8000b9e0b4fb64e4` 的批处理入口与 `transcribe` 复用点属于历史调研。后续对接以电脑端 `add-rec-daemon` 定稿及原样例为准；RecNote 只实施手机客户端。
 
-| 已有模块 | 可复用能力 | 需要协同改动 |
+电脑服务配置名为 **`rec-daemon.yaml`**，与批处理的 `config.yaml` 分离。服务配置包含监听、鉴权、OpenList、队列、流式体积上限、状态及本地工作目录，不含模型字段。具体配置字段名与体积上限由电脑端资料确认，不沿用先前提议的配置模板作为已定稿事实。
+
+双端 WebDAV 根须对应同一真实云盘文件夹。`127.0.0.1` 各指自身设备；手机只发送根内相对路径，电脑拼接自己的云盘根。实际上传／下载路由在部署时核验。连接凭据保存在各自设备，任务 token 本地加密，不写云盘或日志。
+
+## 3. 路径与文件
+
+所有协议路径统一相对云盘根，禁止前导 `/`、协议前缀、反斜杠和点路径。任务根为 `RecNoteRemote/<session_id>`。
+
+| 对象 | 路径或字段 |
+| --- | --- |
+| 音频块 path | `RecNoteRemote/<session_id>/audio/000001.wav` |
+| 原稿 path | `RecNoteRemote/<session_id>/.transcripts/000001.md` |
+| 音频清单 | 任务根内 `manifest.json` 与不可变 `final.json` |
+| 原稿索引／完成 | 任务根内 `.transcripts/index.json` 与 `.transcripts/complete.json` |
+| 探测文件 | `RecNoteRemote/_probe/<uuid>.bin`，恰好三段 |
+| 探测回执 | `<探测路径>.receipt.json` |
+
+音频条目为 `sequence, path, start_sample, sample_count, sha256`，删除 `bytes`。`sample_count` 是必填采样帧数，时间按连续样本累计，暂停不增加样本。SHA-256 覆盖整个 WAV 文件含头部；电脑在流式读取时执行配置体积硬上限，超限使用 `audio_too_large` 且不可重试。
+
+清单公共字段保留 `protocol_version, session_id, revision, sample_rate=16000, channels=1, encoding=pcm_s16le, chunks`；最终清单增加 `total_samples, chunk_count`，绑定完整连续样本集合。数据先写、索引后发布，revision 单调递增；最终清单摘要基于确切原始 UTF-8 字节。
+
+原稿索引公共字段保留 `protocol_version, session_id, revision, chunks`，结果条目沿用 `sequence, audio_sha256, status, path, bytes, sha256, error`，结果 path 改为云盘根相对路径。本次只删除音频条目 bytes，原稿结果字段待取得对端样例再次核对。原稿统一为识别文本加单个结尾换行，静音文件为一字节 `\n`；手机按原字节核验后去首尾空白判空。
+
+完成标记保留 `protocol_version, session_id, final_manifest_sha256, chunks`，手机核对最终清单和全部已保存原稿才标记完成。清单／索引接收上限保留 2 MiB，原稿保留 128 KiB；半写、缺失或校验不完整时等待／刷新，保留既有有效结果。
+
+## 4. 控制接口
+
+协议 v1，接口相对电脑基础地址，控制请求／响应上限 64 KiB，禁止重定向。
+
+| 接口 | 输入 | 约定 |
 | --- | --- | --- |
-| [cli.py](https://github.com/zhangtony239/Voice2Note/blob/c7e837c7563e95c224e021bb8000b9e0b4fb64e4/src/voice2note/cli.py) | 文件批量转写入口 | 保留原 CLI；新增 ASR server 入口，直接复用识别函数 |
-| [asr.py](https://github.com/zhangtony239/Voice2Note/blob/c7e837c7563e95c224e021bb8000b9e0b4fb64e4/src/voice2note/asr.py) | `transcribe`、内部按句切分、进程内懒加载模型、`save_transcript` | 直接接收已验证的完整大块；保存到独立任务目录，整块成功才宣布完成 |
-| [config.py](https://github.com/zhangtony239/Voice2Note/blob/c7e837c7563e95c224e021bb8000b9e0b4fb64e4/src/voice2note/config.py) 与 [模板](https://github.com/zhangtony239/Voice2Note/blob/c7e837c7563e95c224e021bb8000b9e0b4fb64e4/src/voice2note/assets/config-template.yaml) | ASR 配置与路径校验基础 | 增加 ASR 专用服务模板与加载／校验路径，包含识别及服务／OpenList 字段 |
+| `GET /api/v1/health` | Bearer 连接 token | 版本与服务就绪诊断 |
+| `POST /api/v1/probe` | `token, path, sha256` | 读入手机探测文件，写回回执；手机回读并校验响应 `receipt.sha256` |
+| `POST /api/v1/sessions/start` | `protocol_version, token, session_id, cloud_path, title, source_type` | 签发独立 `session_token`，幂等复用同身份任务 |
+| `POST /api/v1/sessions/end` | 仅 `{ "token": "<session_token>" }` | 合法 token 恒成功，重复同样成功，等待最终清单 |
+| `GET /api/v1/sessions/<session_id>` | Bearer 任务 token | 任务诊断；URI 标识与 token 绑定 |
+| `POST /api/v1/sessions/retry` | 仅任务 `token` | 补足失败块和回写，保留已完成项 |
+| `POST /api/v1/sessions/cancel` | 仅任务 `token` | 停止并清理电脑本地工作目录，已完成任务也转为 cancelled，云盘保留 |
 
-当前 `pyproject.toml` 没有 Web 服务组件。服务框架、HTTP 客户端和持久任务组件在 V2N 仓库选型并新增依赖；RecNote 不约束这些内部库。
+接口 state 仅使用 `waiting_source, receiving, draining, completed, failed, cancelled`。同标识不同身份／路径返回 `409 session_id_conflict`；已取消任务再次 start 返回 `409 session_terminal`，手机提示使用新任务。未知请求字段忽略，必填字段检查存在和类型，v1 不依赖未列明字段。
 
-## 3. 电脑 config.yaml 约定
+probe 响应为 `protocol_version, ok, asr_ready, model_loaded, read_ok, write_ok, receipt{path, sha256}, error`。手机核对本次回执 path、实际回执文件摘要和回执内部的探测文件校验值；就绪及双向读写通过才成功。`model_loaded=false` 提示首块较慢，`ok=false` 显示原因而不自动退避。回执内部字段名与时间格式待对端样例确认。
 
-服务 `config.yaml` 包含 ASR 所需的 `TORCH_BACKEND`、`ASR_LANGUAGE`、`DISABLE_MMAP`、原稿／音频工作路径，以及运行服务所必需的鉴权、OpenList 和队列配置。
+错误采用脱敏的 `code/message/retryable`，重试服从 `retryable`，不能仅凭 HTTP 状态推断。完整接口和云盘错误码见 [协议说明](docs/remote-asr-protocol.md#错误与重试)，其中 `audio_too_large` 与 `audio_format_invalid` 分开呈现。普通文件等待不计失败次数。
 
-新增配置建议如下（字段名是服务扩展提议，需在 V2N 模板和校验中落地；值均为示例）：
+## 5. 待同步与联调检查
 
-```yaml
-SERVER_HOST: 127.0.0.1
-SERVER_PORT: 8765
-SERVER_AUTH_TOKEN_HASH: "<连接token的不可逆摘要>"
-OPENLIST_WEBDAV_URL: "http://127.0.0.1:5244/dav/<电脑挂载>/共享目录"
-OPENLIST_USERNAME: "<电脑本机OpenList账号>"
-OPENLIST_PASSWORD: "<仅留在电脑的凭据>"
-SESSION_STATE_PATH: ".server-state/"
-SESSION_WORK_PATH: ".server-work/"
-POLL_INTERVAL_SECONDS: 3
-POLL_MAX_INTERVAL_SECONDS: 30
-ASR_MAX_CONCURRENCY: 1
-```
+- 取得电脑端四份协议 JSON 原样例（滚动清单、最终清单、结果索引、完成标记）与字段说明，在 RecNote 测试资源中保留来源提交，使用 Kotlin 断言字段。
+- 补齐 probe 响应／回执内部字段和音频体积上限资料；当前同步清单未附这些内容。
+- 手机写入探测文件，电脑读入并验证；电脑写回回执，手机读回并核验；只读挂载不能测试成功。
+- 手机发送完整块和最终集合，电脑识别并回写原稿；验证所有路径均相对云盘根且无重复拼接。
+- 验证尾块迟到、空音频集合、一字节静音原稿、半写文件、错误码／可重试标志、重复通知和电脑重启。
+- 验证手机删除后取消仍可恢复发送，电脑本地目录清理，云盘资料保留；已完成任务同样清理。
+- 两台手机的任务、token、结果和取消互不影响；真实传输链路、温升／耗电和设备行为另行验收。
 
-服务配置路径必须明确，避免长期后台启动时工作目录改变就读错 `config.yaml`。health 只显示 ASR 与云盘就绪情况，不返回配置正文或密钥。连接 token 可保存不可逆摘要；需要返回给幂等开始请求的任务 token 应在电脑本地加密保护，不写入云盘或日志。
-
-手机和电脑的 WebDAV 根需映射到同一真实云盘文件夹。挂载名可以不同；`cloud_path` 是根内的相对路径，不携带任一端的 `127.0.0.1` 地址。初版建议双方 OpenList 使用本机代理，由本机访问真实存储；按 [OpenList 官方策略说明](https://docs.openlist.team/guide/drivers/common.html) 核查实际代理 URL 和上传／下载路径，不把绕开 cloudflared 当成未经验证的事实。
-
-## 4. 必须实现的控制接口
-
-协议 v1，所有接口相对于后端基础 URL。控制请求／响应限制 64 KiB，不自动重定向。
-
-| 接口 | 输入 | 必须做到 |
-| --- | --- | --- |
-| `GET /api/v1/health` | Bearer 连接 token | 返回版本、能力与就绪状态，不创建实际任务 |
-| `POST /api/v1/probe` | `token, cloud_path, sha256` | 从电脑 OpenList 验证手机写入的合成探测文件，限探测目录与小文件 |
-| `POST /api/v1/sessions/start` | `protocol_version, token, session_id, cloud_path, title, source_type` | 签发独立 `session_token`，立刻建立云盘轮询；相同身份重试返回原任务与 token |
-| `POST /api/v1/sessions/end` | 仅 `{ "token": "<session_token>" }` | 进入收尾，等待最终清单并完成全部原稿回写 |
-| `GET /api/v1/sessions/<session_id>` | Bearer 任务 token | 诊断状态、进度、错误；token 必须对应 URI 中的任务 |
-| `POST /api/v1/sessions/retry` | 仅任务 `token` | 重试失败块／回写，保留已完成项 |
-| `POST /api/v1/sessions/cancel` | 仅任务 `token` | 幂等停止对应任务，不删除云盘资料 |
-
-开始响应至少为 `session_id, session_token, state`。连接 token 用于连接测试和建立 ASR 任务，不能直接结束某个「最新任务」。两部手机共用连接 token 也必须产生独立任务 token。相同 session_id 配不同路径／身份返回 409。
-
-错误响应采用 `code/message/retryable`，脱敏后提供可读原因；401／403 不自动重试，429／5xx 允许有限退避。普通等待文件是正常状态，不能算作请求失败。电脑重启要恢复会话、任务 token、结束标志和处理进度。
-
-## 5. 文件与完成约定
-
-文件名／字段必须与 RecNote [设计第 3 节](openspec/changes/add-remote-compute-mode/design.md) 一致：
-
-```text
-<cloud_path>/
-  audio/000001.wav, audio/000002.wav, ...
-  manifest.json
-  final.json
-  .transcripts/000001.md, 000002.md, ...
-  .transcripts/index.json
-  .transcripts/complete.json
-```
-
-- `manifest.json`：手机只在音频上传成功后更新，含 `protocol_version, session_id, revision, sample_rate, channels, encoding, chunks`。每块 `sequence, path, start_sample, sample_count, bytes, sha256`，路径相对于任务根。格式 16 kHz／单声道／PCM16，约 30 秒，允许暂停或停止产生短块。
-- `final.json`：手机录音停止且全部音频上传后发布，含最终完整块集合、`total_samples, chunk_count`。电脑在结束通知后仍等这个文件以及每个块；零块不误报有文字。
-- `.transcripts/index.json`：电脑整块识别且完整回写 Markdown 后更新，公共身份字段加递增版本；块条目包含 `sequence, audio_sha256, status, path, bytes, sha256, error`。原稿路径相对于 `.transcripts/`。手机只把完整大块当一个原稿段，不需要内部句级时间。
-- `.transcripts/complete.json`：电脑全量回写后发布，含 `protocol_version, session_id, final_manifest_sha256` 与全部块输入／原稿指纹。只有它与全部原稿都能验证，手机才标记转写完成。
-
-清单／索引上限 2 MiB，单块原稿 128 KiB。数据校验按实际 UTF-8／文件字节 SHA-256，手机上传清单时保留用于核对的确切字节，不依赖两端重新序列化 JSON 的顺序。半写 JSON、旧索引、文件暂时 404 或校验不完整先等待／重试，不能发布完成；禁止任务路径穿越和任意外部 URL。
-
-仅在本机使用临时文件并可靠封存，不假定网盘支持原子 MOVE。无需每个语句建文件。静音块原稿正文可为空，但仍须生成可核验文件并标记整块识别完成。
-
-## 6. V2N 实现清单
-
-- [ ] 新增 ASR `v2n server` 或独立等价服务入口，直接复用识别函数；保留原 `v2n START-END [TITLE]` 行为，验证旧 CLI 用法不变。
-- [ ] 新增 ASR 专用 `config.yaml` 模板与配置加载／校验路径；使用该配置验证服务启动、接收、识别和回写。
-- [ ] 实现连接鉴权、独立任务 token、开始／结束／诊断／重试／取消接口与状态持久化；合成测试覆盖双手机、重复开始、错误 token 和电脑重启。
-- [ ] 实现电脑 OpenList 的滚动清单轮询、完整下载、WAV 样本／字节／SHA 核验和最终收尾；测试尾块晚于结束、空目录、旧清单、短块、零块及权限失败。
-- [ ] 服务直接复用 `transcribe` 的内部按句切分，持久模型实例并使用有界识别并发；测试手机提供的大切片被完整处理，禁止把每个手机块交给 CLI 范围解析重新发现其他文件。
-- [ ] 按 session 隔离本地音频工作目录和 `TRANSCRIPT_PATH`，避免同名 `000001.wav` 跨手机覆盖；测试两会话相同编号不会串资料。
-- [ ] 实现整块 Markdown 回写和索引／完成标记，分离 ASR 成功与云盘回写成功；测试回写失败只补写、没有完成标记之前手机不能误判。
-- [ ] 保护 ASR 服务凭据和状态，日志不输出 token 或 OpenList 密码；配置加载错误也须脱敏，用合成凭据测试所有日志级别。
-- [ ] 记录长录音的识别积压、云盘延迟及失败恢复限制；输出明确错误且保留已验证音频／原稿，不静默丢弃资料。
-- [ ] 提供协议 v1 合成夹具和可重复模拟云盘／API 测试，与 RecNote 共同核对文件名、路径基准、状态、字段与完整性边界。
-
-## 7. 双仓库联调验收
-
-- [ ] 电脑仅用 ASR 服务配置启动，两端 WebDAV 根对应同一真实文件夹，使用合成 probe 验证；记录真实上传／下载链路，确认音频本体不走电脑公开 cloudflared 接口。
-- [ ] 手机发送大块，电脑内部按句处理，原稿只在整块完成后出现在 start 路径 `.transcripts/`；进入详情与刷新能取回且无重复。
-- [ ] 结束通知先到、最后块迟到、手机断网、电脑重启和回写失败都能恢复；最终块集合完整才完成。
-- [ ] 两台手机同时录音互不影响，结束包体始终只有各自任务 token，不依赖全局最近任务。
-- [ ] 用目标手机长录音对照记录温升、耗电和后台稳定性；分别记录协议测试、CI／模拟器验证与人工真机验收，不能互相代替。
+以上是协作约定及后续验收目标，不是电脑端或手机端已通过联调的声明。

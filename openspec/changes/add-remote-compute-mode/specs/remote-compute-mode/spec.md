@@ -20,7 +20,7 @@
 
 ### Requirement: 远程连接配置与测试
 
-后端 URL SHALL 支持用户指定的 HTTP/HTTPS 基础地址，默认 MUST 为空，不允许内嵌账号、查询串或 fragment。远程 token MUST 加密保存、输入时遮蔽且任何日志档位均不得输出。ASR 连接测试 SHALL 检查协议版本、后端识别就绪状态以及双端云盘目录可达性，MUST 仅使用合成小型探测资料，不发起真实识别或笔记整理；手机的 LLM 连接测试 SHALL 沿用原流程，两个测试状态 MUST 相互独立。界面 SHALL 说明两个 `127.0.0.1` 分别指各自设备、HTTP 的传输方式及电脑需在线；测试失败 SHALL 展示原因。
+后端 URL SHALL 支持用户指定的 HTTP/HTTPS 基础地址，默认 MUST 为空，不允许内嵌账号、查询串或 fragment。远程 token MUST 加密保存、输入时遮蔽且任何日志档位均不得输出。ASR 连接测试 SHALL 检查协议版本、后端识别就绪状态以及双端云盘目录可达性，MUST 仅使用合成小型探测资料，不发起真实识别或笔记整理；手机的 LLM 连接测试 SHALL 沿用原流程，两个测试状态 MUST 相互独立。probe 请求 SHALL 仅使用 `token, path, sha256`，path MUST 为相对云盘根且恰好三段的 `RecNoteRemote/_probe/<uuid>.bin`。响应 SHALL 读取 `protocol_version, ok, asr_ready, model_loaded, read_ok, write_ok, receipt{path, sha256}, error`，以响应布尔值判断就绪，不能仅看 HTTP 成功。手机 MUST 回读 `<探测路径>.receipt.json` 并将实际回执文件字节摘要与响应 `receipt.sha256` 比对，再核对回执内探测文件校验值和本次探测一致；所有检查通过才可报告双端目录可达。`model_loaded=false` SHALL 提示首块识别可能较慢，不单独判定连接失败；`ok=false` MUST 显示就绪原因且不得进入退避重试。界面 SHALL 说明两个 `127.0.0.1` 分别指各自设备、HTTP 的传输方式及电脑需在线；测试失败 SHALL 展示原因。
 
 #### Scenario: 未配置
 - **WHEN** 用户选中远程模式但尚未保存有效后端或手机网盘连接
@@ -29,6 +29,22 @@
 #### Scenario: 双端路径不一致
 - **WHEN** 手机可写入探测文件而电脑不能在对应目录读到它
 - **THEN** 测试明确报告目录不可达，不能仅凭后端在线显示全部连接正常
+
+#### Scenario: 电脑可读但无法写回
+- **WHEN** 电脑读入手机探测文件但 `write_ok=false` 或手机无法读取有效回执
+- **THEN** 手机连接测试失败，不能显示双端目录全部可达
+
+#### Scenario: 回执校验不通过
+- **WHEN** 回执路径不是本次 `<探测路径>.receipt.json`，或其原始字节摘要与响应 `receipt.sha256` 不同
+- **THEN** 手机拒绝探测成功结果，不访问越界路径、不认可其他探测的回执
+
+#### Scenario: 模型尚未加载
+- **WHEN** 协议、就绪、双向读写及回执校验均通过，仅 `model_loaded=false`
+- **THEN** 连接测试可成功并提示首次识别可能较慢
+
+#### Scenario: 就绪检查未通过
+- **WHEN** probe 返回 HTTP 成功但 `ok=false`
+- **THEN** 手机显示未就绪原因，等待用户修正配置，不按暂时性 HTTP 故障自动退避
 
 ### Requirement: 每份记录冻结处理模式
 

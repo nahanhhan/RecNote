@@ -2,14 +2,14 @@
 
 ## Context
 
-动机见 [proposal.md](proposal.md)。当前代码与本次确认的边界：
+动机见 [proposal.md](proposal.md)。以下基础描述来自原方案；本文于 2026-11-04 根据用户提供的 `RecNote-Sync.md` 更新目标契约，附件引用的 Voice2Note `add-rec-daemon` 设计与样例未随附。当前代码及已交付 `a8e53ee` APK 仍使用旧契约，不能把文档更新视为实现或联调通过。
 
 - `RecordingService` 已持久保存 16 kHz 单声道 PCM16 WAV，约 30 秒关闭一个文件，但同时通过 `SpeechSegmenter` 生成最长约 15 秒的识别段与预览，启动 `AsrClient`。远程分支应保留采集与大文件落盘，绕过整个手机识别分支，而不是仅隐藏设置。
 - `AudioImporter` 已能解码并保存约 30 秒音频块，但还生成短识别段和调用 `AsrClient`。远程导入可复用解码／大块保存，跳过本地分句和推理。
 - `SettingsScreen` 当前首先显示本地模型，随后显示 `CloudSettingsPanel`；`SettingsStore` 已提供本机密钥加密和 WebDAV 连接资料。
 - `NotesRepository`、`NoteValidator`、`DetailScreen` 和 `WebDavSyncRepository` 当前提供手机供应商连接测试、提示词快照、工具回执、`NoteBatchEntity` 保存与同步。远程原稿映射为现有 `SegmentEntity` 后继续使用这条整理流程；V2N 回写的 Markdown 是原稿，不是最终笔记。
 - 此前核对 Voice2Note 的提交 `c7e837c7563e95c224e021bb8000b9e0b4fb64e4`：[CLI](https://github.com/zhangtony239/Voice2Note/blob/c7e837c7563e95c224e021bb8000b9e0b4fb64e4/src/voice2note/cli.py) 自动执行 ASR 与 LLM 两阶段；[ASR](https://github.com/zhangtony239/Voice2Note/blob/c7e837c7563e95c224e021bb8000b9e0b4fb64e4/src/voice2note/asr.py) 已有按句切分和模型懒加载。新增电脑服务只复用识别函数，不运行 CLI 的完整流水线。
-- 当前范围：电脑只做 ASR，其服务 `config.yaml` 只含识别及必需的服务／OpenList 配置，不含 LLM。手机在详情取回 `.transcripts/` 完整原稿，仍由现有「整理笔记」按钮直接调用手机配置的供应商；手机提示词、读图、保存和导出沿用原流程。
+- 当前范围：电脑只做 ASR，其服务 `rec-daemon.yaml` 只含监听、鉴权、OpenList、队列、体积限制及状态／工作目录配置，不含模型字段；批处理配置仍为独立的 `config.yaml`。手机在详情取回 `.transcripts/` 完整原稿，仍由现有「整理笔记」按钮直接调用手机配置的供应商；手机提示词、读图、保存和导出沿用原流程。
 
 ## Goals / Non-Goals
 
@@ -66,11 +66,11 @@ RecNoteRemote/<session_id>/
     complete.json                # 电脑：整次识别完成，不触发 LLM
 ```
 
-无需对每条语句建云盘文件。每个音频大切片完成上传后才更新同一个 `manifest.json`。不强制云盘支持原子重命名：JSON 必须可完整解析、任务匹配且版本不回退，数据文件必须通过大小和 SHA-256 核验；半写、旧缓存、缺失文件保留上次有效状态并等待重试。最终清单与成功完成标记不可变，禁止覆盖完成的同一路径为不同内容；失败／进行中状态可按递增版本更新为成功。
+无需对每条语句建云盘文件。每个音频大切片完成上传后才更新同一个 `manifest.json`。不强制云盘支持原子重命名：JSON 必须可完整解析、任务匹配且版本不回退，音频数据按整个 WAV 文件（含文件头）的 SHA-256 核验，电脑流式读取时硬截断体积；原稿继续受接收大小上限和摘要校验约束；半写、旧缓存、缺失文件保留上次有效状态并等待重试。最终清单与成功完成标记不可变，禁止覆盖完成的同一路径为不同内容；失败／进行中状态可按递增版本更新为成功。
 
-清单公共字段：`protocol_version`、`session_id`、`revision`、`sample_rate=16000`、`channels=1`、`encoding=pcm_s16le`、`chunks`。每块字段为 `sequence`、`path`、`start_sample`、`sample_count`、`bytes`、`sha256`。滚动清单只列上传成功的块；`final.json` 增加 `total_samples` 和 `chunk_count`，冻结所有非空块，必须按样本顺序连续且无重叠。暂停不增加音频样本时间。
+清单公共字段：`protocol_version`、`session_id`、`revision`、`sample_rate=16000`、`channels=1`、`encoding=pcm_s16le`、`chunks`。每块字段为 `sequence`、`path`、`start_sample`、`sample_count`、`sha256`。音频条目删除 `bytes`，`sample_count` 必填且表示采样帧数；`path` 固定为相对云盘根的 `RecNoteRemote/<session_id>/audio/<六位编号>.wav`。滚动清单只列上传成功的块；`final.json` 增加 `total_samples` 和 `chunk_count`，冻结所有非空块，必须按样本顺序连续且无重叠。暂停不增加音频样本时间。
 
-`.transcripts/index.json` 的公共字段为 `protocol_version, session_id, revision, chunks`；每块条目绑定 `sequence`、`audio_sha256`、`status`、`path`、`bytes`、`sha256` 及 `error`，原稿路径相对于 `.transcripts/`。内部所有语句成功后，先上传整块 Markdown 再更新索引。静音块也产生一份可验证的完成原稿，其正文允许为空；「识别完成」与「有可整理文字」分开判断。
+`.transcripts/index.json` 的公共字段为 `protocol_version, session_id, revision, chunks`；每块条目绑定 `sequence`、`audio_sha256`、`status`、`path`、`bytes`、`sha256` 及 `error`，原稿 `path` 固定为相对云盘根的 `RecNoteRemote/<session_id>/.transcripts/<六位编号>.md`。内部所有语句成功后，先上传整块 Markdown 再更新索引。静音块也产生一份可验证的完成原稿，其内容为一个换行字节（`\n`）；所有原稿统一以单个换行结尾，手机先验证实际 UTF-8 文件字节，再用去除首尾空白后的文字判断是否有可整理内容；「识别完成」与「有可整理文字」分开判断。
 
 `.transcripts/complete.json` 含 `protocol_version, session_id, final_manifest_sha256, chunks`，绑定原始 `final.json` 字节的 SHA-256 以及每块的输入和原稿校验值。手机必须把最终集合全部读回并保存后才显示转写完成。电脑内部有更多句级信息时不作为首版协议必需项。
 
@@ -85,12 +85,12 @@ RecNoteRemote/<session_id>/
 | 接口 | 鉴权与输入 | 返回与作用 |
 | --- | --- | --- |
 | `GET /api/v1/health` | `Authorization: Bearer <connection_token>` | 协议版本、ASR 与 OpenList 就绪状态；不返回密钥，不依赖 LLM |
-| `POST /api/v1/probe` | 包体 `token, cloud_path, sha256` | 校验手机写入的小型合成探测文件可从电脑同一相对路径读取 |
+| `POST /api/v1/probe` | 包体 `token, path, sha256`，path 为 `RecNoteRemote/_probe/<uuid>.bin` | 电脑读入探测文件后写回 `<path>.receipt.json`，手机回读回执并校验响应 `receipt.sha256`，确认双向可达 |
 | `POST /api/v1/sessions/start` | 包体 `protocol_version, token, session_id, cloud_path, title, source_type` | 建立轮询；返回 `session_id, session_token, state` |
-| `POST /api/v1/sessions/end` | 包体仅 `token`，值为 `session_token` | 幂等标记收尾；响应不代表全部识别完成 |
+| `POST /api/v1/sessions/end` | 包体仅 `token`，值为 `session_token` | 任务 token 合法则恒返回成功，重复提交同样成功；只标记收尾，响应不代表全部识别完成 |
 | `GET /api/v1/sessions/<session_id>` | `Authorization: Bearer <session_token>` | 诊断状态、块计数和错误；原稿仍从云盘读取 |
 | `POST /api/v1/sessions/retry` | 包体仅 `token`，值为 `session_token` | 恢复失败下载／识别／回写，保留成功块 |
-| `POST /api/v1/sessions/cancel` | 包体仅 `token`，值为 `session_token` | 停止电脑任务；可删除记录的本地清理可尽力通知，不要求删除云盘 |
+| `POST /api/v1/sessions/cancel` | 包体仅 `token`，值为 `session_token` | 停止任务并删除电脑本地工作目录，保留云盘资料；已完成任务也清理并转为 `cancelled`，手机持久保存取消待发送记录直到确认 |
 
 开始示例（全部 token 为说明占位，不是实际凭据）：
 
@@ -105,7 +105,7 @@ RecNoteRemote/<session_id>/
 }
 ```
 
-开始响应签发随机、任务专属的 `session_token`。同一任务、同一路径和同一授权主体的开始重试返回同一 token；标识冲突返回 409。结束只发送：
+开始响应签发随机、任务专属的 `session_token`。同一任务、同一路径和同一授权主体的开始重试返回同一 token；同标识不同身份或路径返回 `409 session_id_conflict`；对已取消任务再次 start 返回 `409 session_terminal`，手机提示需新任务并为新的录音生成新 `session_id`，不自动重复提交旧开始请求。结束只发送：
 
 ```json
 { "token": "<session_token>" }
@@ -113,7 +113,7 @@ RecNoteRemote/<session_id>/
 
 连接 token 不能替代任务 token 执行结束操作。电脑由任务 token 定位会话，不使用「最新录音」全局变量；状态 URI 的 session_id 还必须与 token 对应。电脑 token 注册表和 ASR 配置在本机持久保护，云盘文件不含 token。任务 token 只控制识别会话；手机整理供应商使用手机自身保存的 API Key。
 
-鉴权错误返回 401／403，标识或不可变内容冲突返回 409，参数错误返回 400／422，暂时性故障使用 429／5xx，并提供小型、脱敏的 `code/message/retryable`。网络未连接只等待；请求暂时失败有限退避，连续五次失败转为人工重试。等待清单的正常 200 状态不消耗失败次数。
+控制错误使用脱敏的 `code/message/retryable`。HTTP 状态表示请求合法性；是否重试以有效错误体的 `retryable` 为准，不能单凭 HTTP 状态推断。网络未连接只等待，暂时连接故障有限退避；连续五次可重试失败后转为人工重试。`retryable=false`、鉴权／协议不兼容、`session_terminal` 和 `audio_too_large` 停止自动重试；缺失或损坏错误体不给未知错误无限重试机会，保留资料并提示人工检查。probe 的 HTTP 成功响应中 `ok=false` 属就绪检查结果，不进入退避重试。等待清单的正常状态不消耗失败次数。请求体的未知字段由电脑忽略，必填字段仍校验存在与类型；手机 v1 不依赖未列明字段。
 
 备选方案是开始和结束都用同一个全局 token；结束包无法指明两部手机的目标，因此签发任务 token 来保持结束包体只有一个字段。
 
@@ -133,7 +133,7 @@ flowchart LR
 
 上传、控制通知与识别分别记录状态。停止立即封存最后非空块、冻结本地最终集合并排队结束通知，音频上传队列继续；全部上传成功后发布 `final.json`。若开始尚未得到响应，先重试开始取得 token 再发结束。
 
-电脑状态为 `waiting_source → receiving → draining → asr_completed`，可进入 `failed/cancelled`。开始就轮询滚动清单并逐大块识别；结束进入 `draining`，直到最终清单所有块的原稿已经写回，才发布 `complete.json`。默认电脑轮询 3 秒，无变化可以退避至 30 秒；停机和长时间无更新的等待策略由配置控制，但超时只能显示失败／等待并保留进度，不能当作正常完成。
+电脑状态为 `waiting_source → receiving → draining → completed`，可进入 `failed/cancelled`。开始就轮询滚动清单并逐大块识别；结束进入 `draining`，直到最终清单所有块的原稿已经写回，才发布 `complete.json`。默认电脑轮询 3 秒，无变化可以退避至 30 秒；停机和长时间无更新的等待策略由配置控制，但超时只能显示失败／等待并保留进度，不能当作正常完成。
 
 进程异常后的手机 WAV 修复沿用当前逻辑。已修复且封存的块可以恢复上传；中断的麦克风录音由用户选择继续或结束，不自动录音或自动发布会截断用户后续录音的最终清单。已经有不可变最终清单的任务不得追加音频，后续新录音创建新任务。
 
@@ -153,7 +153,7 @@ flowchart LR
 
 保留 `NoteValidator`、工具回执、`NoteBatchEntity`、`EditedNoteEntity` 和现有 WebDAV 完成判断；不新增电脑笔记结果格式或笔记回收队列。手机的供应商预设、API Key、提示词变量、照片读图能力和批次规划均保持原有约定。
 
-电脑服务只需解析 ASR、监听／鉴权、OpenList 及状态目录配置。新增 ASR 专用配置加载／校验路径，确保无任何 LLM 字段或组件也可启动、识别并回写原稿。既有 V2N CLI 的自动两阶段使用可独立保留，但 RecNote server 不调用 `generate_note` 或完整 CLI 流水线。
+电脑服务配置使用独立的 `rec-daemon.yaml`，包含监听／鉴权、OpenList、队列、体积上限及本地状态／工作目录，不含模型配置字段。批处理的 `config.yaml` 单独保留；模型加载由电脑端已有识别运行环境处理，不由手机传递模型配置。
 
 ### 8. 原稿状态存储与既有照片处理
 
@@ -184,3 +184,27 @@ flowchart LR
 3. 默认仍为本地模式，旧记录全部迁移为本地；远程模式使用显式保存配置和连接测试，后端不在线也保留已授权录音的本地文件。
 4. 两端共同固定协议文件名、校验、身份和重试规则，再执行真实 OpenList 与手机验收，人工勾选 tasks 中真机项。
 5. 回退使用切回本地模式；旧远程记录仍按其冻结模式显示缓存资料，不自动用本地模型重算。服务暂停时本地音频、原稿及笔记不删除；已完成任务目录不追加新音频。
+
+## RecNote-Sync 契约同步与实施顺序
+
+本节对应用户附件的 1–15 项，仅更新设计与后续任务，不修改实现。
+
+| 附件条目 | 更新目标 |
+| --- | --- |
+| 1–2 | 所有协议路径相对云盘根；音频条目删除 `bytes`，保留 `sample_count` 与全文件 SHA-256 |
+| 3 | 对外 `state` 只使用 `waiting_source, receiving, draining, completed, failed, cancelled` |
+| 4–6 | probe 改用 `path`，固定三段探测路径，回执回读、完整响应及冷启动提示 |
+| 7–9 | 取消清理电脑本地含已完成任务；终态开始冲突；未知请求字段兼容 |
+| 10–12 | 原稿单换行收尾；配置改名 `rec-daemon.yaml`；合法 token 的 end 恒成功 |
+| 13、15 | 独立 `audio_too_large` 错误及完整错误码分类，重试服从 `retryable` |
+| 14 | 取得并复制对端四份协议 JSON 和字段说明，加入 Kotlin 字段断言 |
+
+所有协议路径必须是云盘根内相对路径：不以 `/` 开头，不含协议前缀、反斜杠、`.` 或 `..` 路径段；音频和原稿还须属于当前 `session_id`。`cloud_path` 保留为 start 中的任务目录字段，probe 的文件字段使用 `path`，不能在手机路径拼接时重复添加任务根或 `.transcripts/`。
+
+probe 成功响应字段为 `protocol_version, ok, asr_ready, model_loaded, read_ok, write_ok, receipt{path, sha256}, error`。手机写 `RecNoteRemote/_probe/<uuid>.bin`，电脑读入并校验后写 `<path>.receipt.json`。手机核对协议版本、就绪／读写布尔值、回执预期路径与实际回执文件字节 SHA-256（对照响应 `receipt.sha256`），再核对回执内的探测文件校验值与本次探测绑定。`model_loaded=false` 只提示首块可能较慢，其余检查通过时允许连接成功；HTTP 成功但 `ok=false` 提示原因，不自动退避。测试清理仅涉及本次探测文件与回执。
+
+取消确认使用持久发件箱：删除手机录音前，保留任务身份、原连接引用和加密任务 token；手机录音清理后仍可重发取消，确认电脑已停止并清理工作目录后移除发件箱。已完成任务也发送取消。连接改变时暂停待发送记录，不能向新服务器或新账号发送旧任务；取消响应迟到不重建录音。
+
+附件未给出回执内部的具体字段名／时间格式、音频流式体积上限数值，也未附对端 `tests/fixtures/protocol_v1/` 的四份 JSON 与字段说明。以上作为实现前资料依赖，不自行猜值或把合成文件冒充对端样例；收到后先固化字段，再实施第 7 组任务。本文只移除音频条目的 `bytes`；结果索引原有 `bytes` 暂保留，最终字段集合以对端样例核对。
+
+已交付 APK 和旧持久清单需要迁移策略：有原始本地音频的未完成任务可由手机显式新建任务重新发布新格式；不得原地改写已发布的不可变 `final.json`。新协议适配与回归验证完成前，不宣称旧包已兼容对端定稿。
