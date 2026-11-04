@@ -116,7 +116,7 @@ class NotesRepository(private val graph: AppGraph) {
         check(lesson.status !in setOf("recording", "paused", "processing", "importing", "transcribing")) { "请等待录音或音频导入与转写结束" }
         check(lesson.sourceType != "import" || lesson.importReady) { "请先完成音频导入和转写" }
         check(lesson.sourceType != "import" || graph.dao.unfinishedSegments(lessonId).isEmpty()) { "请先完成导入音频的全部转写" }
-        val segments = graph.dao.segments(lessonId).map { Segment(it.id, it.startMs, it.endMs,
+        val segments = graph.dao.segments(lessonId).filterNot { it.status == "ready" && it.text.isBlank() }.map { Segment(it.id, it.startMs, it.endMs,
             if (it.text.isBlank() && it.status != "ready") "【待核对：此段转写未完成】" else it.text) }
         val photos = graph.dao.photos(lessonId).filter { it.selected }.map { Photo(it.id, it.filename, it.audioTimeMs) }
         val batches = BatchPlanner.plan(lessonId, lesson.revision, lesson.course,

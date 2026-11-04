@@ -52,8 +52,7 @@ class SettingsStore(context: Context) {
         return saved
     }
     /** 连接身份与版本号分开：恢复原配置后可显式重试；同步开关不改变音频授权。 */
-    fun remoteIdentity(): String {
-        val r = remote(); val w = webDav()
+    fun remoteIdentity(r: RemoteSettings = remote(), w: WebDavSettings = webDav()): String {
         return io.github.nahanhhan.lecture.core.RemoteProtocol.sha256(protocolJson.encodeToString(
             listOf(r.baseUrl, r.token, w.baseUrl, w.username, w.password)).toByteArray(Charsets.UTF_8))
     }

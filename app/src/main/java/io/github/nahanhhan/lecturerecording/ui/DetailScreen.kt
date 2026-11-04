@@ -42,7 +42,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.decodeFromString
 import java.io.File
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable fun DetailScreen(activity: MainActivity, graph: AppGraph, id: String, onDeleted: () -> Unit = {}) {
     val lessonState by remember(id) { graph.dao.observeLesson(id).map { true to it } }
         .collectAsStateWithLifecycle(initialValue = false to null)
@@ -146,21 +146,25 @@ import java.io.File
                     state?.complete == true -> "完整原稿已保存，可离线阅读和编辑"
                     state?.state == "failed" -> "远程任务待重试"
                     state?.state == "paused" -> "连接配置变化，任务已暂停"
+                    state?.state == "cancelled" -> "远程任务已停止"
                     state?.stopped == true -> "等待完整原稿"
                     else -> "音频封存后自动上传"
                 }, style = MaterialTheme.typography.bodySmall)
                 if (!state?.error.isNullOrBlank()) Text(state!!.error, color = MaterialTheme.colorScheme.error)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(enabled = !remoteRefreshing, onClick = { remoteRefresh++ }) { Text(if (remoteRefreshing) "检查中" else "刷新原稿") }
                     if (state?.complete != true && state?.state != "cancelled") TextButton(enabled = !remoteRefreshing, onClick = {
                         scope.launch { try { graph.remote.retry(id); error = "已排队重试" } catch (exception: Exception) { error = exception.message ?: "重试失败" } }
                     }) { Text("重试远程任务") }
+                    if (state?.tokenCipher?.isNotEmpty() == true && state.state != "cancelled" && state.complete != true) TextButton(enabled = !remoteRefreshing, onClick = {
+                        scope.launch { try { error = withContext(Dispatchers.IO) { graph.remote.diagnose(id) } } catch (_: Exception) { error = "无法取得电脑任务状态，请检查连接" } }
+                    }) { Text("电脑状态") }
                     if (state?.stopped == true && state.complete != true && state.state != "cancelled" && !active && !importActive) TextButton(onClick = {
                         scope.launch { try { graph.remote.cancel(id) } catch (_: Exception) { error = "停止通知未确认，本地状态已保留" } }
                     }) { Text("停止远程任务") }
                     if (!active && !importActive && current.status == "interrupted" && state?.stopped != true) TextButton(onClick = {
                         scope.launch { try { graph.remote.stop(id); error = "" } catch (exception: Exception) { error = exception.message ?: "结束失败" } }
-                    }) { Text("结束并提交原稿") }
+                    }) { Text("结束此次录音") }
                 }
             }
             if (importActive) {
@@ -250,13 +254,13 @@ import java.io.File
             val timeline = segments.map { TimelineItem(it.startMs, segment = it) } + photos.map { TimelineItem(it.audioTimeMs, photo = it) }
             LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (active && recording.preview.isNotBlank()) item { Card { Text("正在识别：${recording.preview}", Modifier.padding(16.dp)) } }
-                if (timeline.isEmpty()) item { Text("讲话后会显示转写。照片也会按录音时间出现在这里。") }
+                if (timeline.isEmpty()) item { Text(if (current.recognitionMode == "remote") "电脑完成音频块识别后，点击刷新原稿查看结果。" else "讲话后会显示转写。照片也会按录音时间出现在这里。") }
                 items(timeline.sortedBy { it.time }, key = { it.segment?.id ?: it.photo!!.id }) { item ->
                     item.segment?.let { segment ->
                         Card(Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(16.dp)) {
                                 Text("${formatTime(segment.startMs)} — ${formatTime(segment.endMs)}", style = MaterialTheme.typography.labelMedium)
-                                Text(segment.text.ifBlank { if (segment.status == "error") "待核对：${segment.error}" else "正在等待转写" }, Modifier.padding(vertical = 10.dp))
+                                Text(segment.text.ifBlank { if (segment.status == "error") "待核对：${segment.error}" else if (segment.status == "ready") "此段没有识别到文字" else "正在等待转写" }, Modifier.padding(vertical = 10.dp))
                                 Row {
                                     TextButton(onClick = { scope.launch { seek(segment.startMs) } }) { Text("回听") }
                                     TextButton(enabled = !active && !cloudRunning, onClick = { editSegment = segment }) { Text("编辑") }

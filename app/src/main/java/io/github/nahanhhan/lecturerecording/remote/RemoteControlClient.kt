@@ -2,6 +2,8 @@ package io.github.nahanhhan.lecturerecording.remote
 
 import io.github.nahanhhan.lecture.core.*
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.*
@@ -38,7 +40,9 @@ class RemoteControlClient(address: String, client: OkHttpClient = OkHttpClient.B
         check(response["ok"]?.jsonPrimitive?.booleanOrNull == true) { "电脑未确认同一云盘目录可读" }
     }
     suspend fun start(input: RemoteStart): RemoteStarted {
-        val result = remoteJson.decodeFromJsonElement<RemoteStarted>(request("sessions/start", remoteJson.encodeToJsonElement(input).jsonObject))
+        val response = request("sessions/start", remoteJson.encodeToJsonElement(input).jsonObject)
+        val result = try { remoteJson.decodeFromJsonElement<RemoteStarted>(response) }
+            catch (_: Exception) { throw RemoteFailure(-1, "电脑开始响应缺少有效任务信息") }
         check(result.session_id == input.session_id && result.session_token.isNotBlank() && result.session_token.length <= 4096 && result.session_token.none { it.isISOControl() }) { "电脑返回的任务凭据无效" }
         return result
     }
@@ -47,14 +51,14 @@ class RemoteControlClient(address: String, client: OkHttpClient = OkHttpClient.B
         request("sessions/$action", buildJsonObject { put("token", token) })
     }
     suspend fun status(id: String, token: String) = request("sessions/${RemoteProtocol.session(id)}", bearer = token)
-    private suspend fun request(path: String, json: JsonObject? = null, bearer: String? = null): JsonObject {
+    private suspend fun request(path: String, json: JsonObject? = null, bearer: String? = null): JsonObject = withContext(Dispatchers.IO) {
         val target = root.newBuilder().apply { listOf("api", "v1").plus(path.split('/')).forEach { addPathSegment(it) } }.build()
         val body = json?.toString()?.toByteArray(Charsets.UTF_8)
         require(body == null || body.size <= RemoteProtocol.CONTROL_LIMIT) { "控制请求超过允许大小" }
         val builder = Request.Builder().url(target)
         if (body != null) builder.post(body.toRequestBody("application/json".toMediaType()))
         if (bearer != null) builder.header("Authorization", "Bearer $bearer")
-        return call(builder.build()).use { response ->
+        call(builder.build()).use { response ->
             if (!response.isSuccessful) throw RemoteFailure(response.code, when (response.code) {
                 401, 403 -> "电脑连接凭据无效或无权限"
                 409 -> "电脑任务标识或内容冲突"

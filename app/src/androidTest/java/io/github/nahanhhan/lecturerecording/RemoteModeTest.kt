@@ -14,6 +14,7 @@ import io.github.nahanhhan.lecturerecording.remote.RemoteRepository
 import io.github.nahanhhan.lecturerecording.remote.RemoteUploadWorker
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.*
 import okhttp3.mockwebserver.*
 import okio.Buffer
@@ -36,7 +37,8 @@ class RemoteModeTest {
     private val files = ConcurrentHashMap<String, ByteArray>()
     private val notifications = CopyOnWriteArrayList<Pair<String, String>>()
     private val ids = mutableListOf<String>()
-    private var reject = false
+    @Volatile private var reject = false
+    @Volatile private var temporaryFailure = false
     @Before fun setup(): Unit = runBlocking {
         check(app.packageName.endsWith(".uitest"))
         graph.initialized.await()
@@ -47,6 +49,7 @@ class RemoteModeTest {
                 val path = request.path!!
                 if (path.startsWith("/api/")) {
                     if (reject) return MockResponse().setResponseCode(403)
+                    if (temporaryFailure) return MockResponse().setResponseCode(503)
                     if (path.endsWith("/health")) return json("{\"protocol_version\":1,\"asr_ready\":true,\"openlist_ready\":true}")
                     if (path.endsWith("/probe")) return json("{\"ok\":true}")
                     val body = request.body.readUtf8()
@@ -185,5 +188,25 @@ class RemoteModeTest {
         graph.remote.testConnection()
         assertTrue(notifications.none { it.first.endsWith("/start") })
         assertTrue(files.keys.none { it.contains("probe-") })
+    }
+    @Test fun authenticationFailureStopsAutomaticAttemptsAndManualRetryRecovers(): Unit = runBlocking {
+        val id = lesson(); chunk(id); reject = true
+        assertTrue(graph.remote.upload(id))
+        assertEquals("failed", graph.dao.remoteSession(id)!!.state)
+        val requests = server.requestCount
+        assertTrue(graph.remote.upload(id)); assertEquals(requests, server.requestCount)
+        reject = false
+        graph.remote.retry(id); assertTrue(graph.remote.upload(id))
+        assertEquals(1, graph.dao.remoteSession(id)!!.uploaded)
+        assertEquals(0, graph.dao.remoteSession(id)!!.attempts)
+    }
+    @Test fun transientFailuresStopAfterFiveAttemptsAndKeepSourceAudio(): Unit = runBlocking {
+        val id = lesson(); val source = chunk(id); temporaryFailure = true
+        repeat(4) { assertFalse(graph.remote.upload(id)) }
+        assertTrue(graph.remote.upload(id))
+        assertEquals(5, graph.dao.remoteSession(id)!!.attempts)
+        assertEquals("failed", graph.dao.remoteSession(id)!!.state)
+        assertTrue(File(source.path).isFile)
+        assertTrue(graph.dao.segments(id).isEmpty())
     }
 }

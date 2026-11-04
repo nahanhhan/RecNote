@@ -280,17 +280,24 @@ class MainActivity : ComponentActivity() {
     importUri?.let { uri ->
         var title by remember(uri) { mutableStateOf(importName.substringBeforeLast('.', importName)) }
         var course by remember(uri) { mutableStateOf("") }
+        var importError by remember(uri) { mutableStateOf("") }
         AlertDialog(onDismissRequest = { importUri = null }, title = { Text("导入音频") }, text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(importName)
                 OutlinedTextField(title, { title = it }, label = { Text("标题") }, singleLine = true)
                 OutlinedTextField(course, { course = it }, label = { Text("课程名称") }, singleLine = true)
-                Text("支持 MP3、AAC、WAV、M4A，单文件最多 4 GB、24 小时。音频在本机转写，可回听并整理文字笔记。此记录不能追加录音或拍照。")
+                Text("支持 MP3、AAC、WAV、M4A，单文件最多 4 GB、24 小时。" +
+                    if (graph.settings.recognitionMode == "remote") "音频经云盘交给电脑识别，取回原稿后可回听并整理文字笔记。此记录不能追加录音或拍照。"
+                    else "音频在本机转写，可回听并整理文字笔记。此记录不能追加录音或拍照。")
+                if (importError.isNotBlank()) Text(importError, color = MaterialTheme.colorScheme.error)
             }
         }, confirmButton = { TextButton(enabled = recording.lessonId == null && importing.lessonId == null, onClick = {
-            ContextCompat.startForegroundService(activity, Intent(activity, AudioImportService::class.java)
-                .putExtra("uri", uri.toString()).putExtra("title", title).putExtra("course", course))
-            importUri = null
+            try {
+                if (graph.settings.recognitionMode == "remote") graph.settings.requireRemote()
+                ContextCompat.startForegroundService(activity, Intent(activity, AudioImportService::class.java)
+                    .putExtra("uri", uri.toString()).putExtra("title", title).putExtra("course", course))
+                importUri = null
+            } catch (error: IllegalStateException) { importError = error.message ?: "请检查识别配置" }
         }) { Text("导入并转写") } }, dismissButton = { TextButton(onClick = { importUri = null }) { Text("取消") } })
     }
     if (newRecording) {
@@ -300,7 +307,8 @@ class MainActivity : ComponentActivity() {
             text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(title, { title = it }, label = { Text("标题") }, singleLine = true)
                 OutlinedTextField(course, { course = it }, label = { Text("课程名称") }, singleLine = true)
-                Text("模型未安装时也可以录音；安装后可处理未完成的短段转写。", style = MaterialTheme.typography.bodySmall)
+                Text(if (graph.settings.recognitionMode == "remote") "录音经手机 OpenList 上传云盘，由电脑识别；手机保留本地音频。"
+                    else "模型未安装时也可以录音；安装后可处理未完成的短段转写。", style = MaterialTheme.typography.bodySmall)
             } }, confirmButton = { TextButton(onClick = {
                 activity.beginRecording(Intent(activity, RecordingService::class.java).setAction(RecordingService.START).putExtra("title", title).putExtra("course", course))
                 newRecording = false
