@@ -53,6 +53,7 @@ class AudioImporter(private val graph: AppGraph) {
             convert(lesson, source, report)
             lesson = requireNotNull(graph.dao.lesson(lessonId))
         }
+        if (lesson.recognitionMode == "remote") { graph.remote.stop(lessonId); return }
         val pending = graph.dao.unfinishedSegments(lessonId)
         if (pending.isEmpty()) {
             graph.dao.setStatus(lessonId, "completed", if (graph.dao.segments(lessonId).isEmpty()) "文件中没有检测到可转写的语音" else "")
@@ -88,7 +89,7 @@ class AudioImporter(private val graph: AppGraph) {
     private suspend fun convert(lesson: LessonEntity, source: File, report: (ImportState) -> Unit) {
         val directory = File(graph.lessonDir(lesson.id), "import-audio-${UUID.randomUUID()}").apply { check(mkdirs()) }
         val chunks = mutableListOf<ChunkEntity>(); val segments = mutableListOf<SegmentEntity>()
-        val segmenter = SpeechSegmenter()
+        val segmenter = if (lesson.recognitionMode == "remote") null else SpeechSegmenter()
         var frames = 0L; var chunk: WavFile? = null; var record: ChunkEntity? = null
         var lastReport = 0L; var lastSpaceCheck = 0L
         val coroutine = currentCoroutineContext()
@@ -101,7 +102,7 @@ class AudioImporter(private val graph: AppGraph) {
         }
         fun closeChunk() {
             chunk?.let { wav ->
-                wav.close(); chunks += requireNotNull(record).copy(sampleCount = wav.samples)
+                wav.close(); chunks += requireNotNull(record).copy(sampleCount = wav.samples, sealed = true)
             }
             chunk = null; record = null
         }
@@ -115,7 +116,7 @@ class AudioImporter(private val graph: AppGraph) {
                     chunk = WavFile(file); record = ChunkEntity(UUID.randomUUID().toString(), lesson.id, file.path, frames)
                 }
                 chunk!!.append(samples, samples.size)
-                segmenter.accept(samples, frames).forEach { submit(it) }
+                segmenter?.accept(samples, frames)?.forEach { submit(it) }
                 frames += samples.size
                 if (chunk!!.samples >= 16000 * 30) closeChunk()
                 val now = android.os.SystemClock.elapsedRealtime()
@@ -123,7 +124,7 @@ class AudioImporter(private val graph: AppGraph) {
                     report(ImportState(lesson.id, "importing", "正在转换音频 · 已处理 ${frames / 16000} 秒", frames)); lastReport = now
                 }
             }
-            closeChunk(); segmenter.finish()?.let { submit(it) }
+            closeChunk(); segmenter?.finish()?.let { submit(it) }
             coroutine.ensureActive()
             graph.database.withTransaction {
                 check(graph.dao.lesson(lesson.id)?.sourceType == "import") { "音频记录已删除" }

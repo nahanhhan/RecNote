@@ -1,7 +1,7 @@
 name: Android build
 on:
   push:
-    branches: [main]
+    branches: [main, 'codex/remote-compute-mode']
   pull_request:
   workflow_dispatch:
 permissions:

@@ -112,11 +112,12 @@ class NotesRepository(private val graph: AppGraph) {
     }
     private suspend fun createJob(lessonId: String, includePhotos: Boolean): JobEntity = graph.database.withTransaction {
         val lesson = requireNotNull(graph.dao.lesson(lessonId))
+        check(lesson.recognitionMode != "remote" || graph.dao.remoteSession(lessonId)?.complete == true) { "请先取回并验证全部远程原稿" }
         check(lesson.status !in setOf("recording", "paused", "processing", "importing", "transcribing")) { "请等待录音或音频导入与转写结束" }
         check(lesson.sourceType != "import" || lesson.importReady) { "请先完成音频导入和转写" }
         check(lesson.sourceType != "import" || graph.dao.unfinishedSegments(lessonId).isEmpty()) { "请先完成导入音频的全部转写" }
         val segments = graph.dao.segments(lessonId).map { Segment(it.id, it.startMs, it.endMs,
-            if (it.text.isBlank()) "【待核对：此段转写未完成】" else it.text) }
+            if (it.text.isBlank() && it.status != "ready") "【待核对：此段转写未完成】" else it.text) }
         val photos = graph.dao.photos(lessonId).filter { it.selected }.map { Photo(it.id, it.filename, it.audioTimeMs) }
         val batches = BatchPlanner.plan(lessonId, lesson.revision, lesson.course,
             graph.settings.glossary.split(',', '，', '\n').map { it.trim() }.filter { it.isNotBlank() }, segments, photos,

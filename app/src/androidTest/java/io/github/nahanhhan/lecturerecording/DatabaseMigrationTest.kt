@@ -43,12 +43,12 @@ class DatabaseMigrationTest {
             db.version = 1
         }
         val migrated = Room.databaseBuilder(app, LectureDatabase::class.java, name)
-            .addMigrations(LectureDatabase.MIGRATION_1_2, LectureDatabase.MIGRATION_2_3, LectureDatabase.MIGRATION_3_4, LectureDatabase.MIGRATION_4_5, LectureDatabase.MIGRATION_5_6).build()
+            .addMigrations(LectureDatabase.MIGRATION_1_2, LectureDatabase.MIGRATION_2_3, LectureDatabase.MIGRATION_3_4, LectureDatabase.MIGRATION_4_5, LectureDatabase.MIGRATION_5_6, LectureDatabase.MIGRATION_6_7).build()
         try {
             val saved = migrated.dao().lesson("old")!!
             assertEquals("Saved Recording", saved.title); assertEquals(32000L, saved.samples)
             assertEquals("microphone", saved.sourceType); assertFalse(saved.importReady)
-            assertEquals("", saved.scheduleKey); assertEquals("", saved.scheduleTitle)
+            assertEquals("local", saved.recognitionMode); assertEquals("", saved.scheduleKey); assertEquals("", saved.scheduleTitle)
             assertEquals("saved text", migrated.dao().segments("old").single().text)
             assertEquals("photo", migrated.dao().photos("old").single().id)
             assertEquals("", migrated.dao().job("old-job")!!.systemPrompt)
@@ -83,11 +83,11 @@ class DatabaseMigrationTest {
             db.version = 2
         }
         val migrated = Room.databaseBuilder(app, LectureDatabase::class.java, name)
-            .addMigrations(LectureDatabase.MIGRATION_2_3, LectureDatabase.MIGRATION_3_4, LectureDatabase.MIGRATION_4_5, LectureDatabase.MIGRATION_5_6).build()
+            .addMigrations(LectureDatabase.MIGRATION_2_3, LectureDatabase.MIGRATION_3_4, LectureDatabase.MIGRATION_4_5, LectureDatabase.MIGRATION_5_6, LectureDatabase.MIGRATION_6_7).build()
         try {
             val saved = migrated.dao().lesson("old")!!
             assertEquals("import", saved.sourceType); assertTrue(saved.importReady)
-            assertEquals("", saved.scheduleKey); assertEquals("", saved.scheduleTitle)
+            assertEquals("local", saved.recognitionMode); assertEquals("", saved.scheduleKey); assertEquals("", saved.scheduleTitle)
             assertTrue(migrated.dao().titlesForSchedule("anything").isEmpty())
             assertTrue(migrated.dao().scheduleKeys().isEmpty())
         } finally { migrated.close(); app.deleteDatabase(name) }

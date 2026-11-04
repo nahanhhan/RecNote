@@ -28,6 +28,7 @@ class WebDavSyncRepository(private val graph: AppGraph) {
         graph.lessonOperations.withLock {
             val old = graph.settings.webDav()
             val saved = graph.settings.saveWebDav(value)
+            graph.remote.configurationChanged()
             enabled.value = saved.active
             if (saved.revision != old.revision) {
                 WebDavUploadWorker.cancelAll(graph.app)

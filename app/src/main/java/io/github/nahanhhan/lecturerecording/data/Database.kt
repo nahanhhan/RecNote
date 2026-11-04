@@ -12,7 +12,20 @@ data class LessonEntity(@PrimaryKey val id: String, val title: String, val cours
     /** 关联的日程出现项键；无日程的课堂为空串。 */
     @ColumnInfo(defaultValue = "''") val scheduleKey: String = "",
     /** 关联日程的名称，作为 `-x` 命名前缀，不随用户改标题变化。 */
-    @ColumnInfo(defaultValue = "''") val scheduleTitle: String = "")
+    @ColumnInfo(defaultValue = "''") val scheduleTitle: String = "",
+    @ColumnInfo(defaultValue = "'local'") val recognitionMode: String = "local")
+
+/** 任务凭据为系统密钥加密密文；清单字节持久化后重试不重新序列化。 */
+@Entity(tableName = "remote_sessions")
+data class RemoteSessionEntity(@PrimaryKey val lessonId: String, val identity: String, val configVersion: String,
+    val tokenCipher: String = "", val stopped: Boolean = false, val endSent: Boolean = false,
+    val finalJson: String = "", val manifestJson: String = "", val uploaded: Int = 0,
+    val indexRevision: Long = -1, val state: String = "pending", val error: String = "",
+    val attempts: Int = 0, val complete: Boolean = false, val retryRequested: Boolean = false)
+
+@Entity(tableName = "remote_chunks", primaryKeys = ["lessonId", "sequence"])
+data class RemoteChunkEntity(val lessonId: String, val sequence: Int, val chunkId: String,
+    val audioSha: String, val transcriptSha: String = "", val transcriptBytes: Long = 0)
 
 /** 日程来源：`kind` 为 `file` 或 `url`；ICS 原文保存在 `files/schedules/<id>.ics`。 */
 @Entity(tableName = "schedule_sources")
@@ -21,7 +34,8 @@ data class ScheduleSourceEntity(@PrimaryKey val id: String, val kind: String, va
 
 @Entity(tableName = "chunks", indices = [Index("lessonId")])
 data class ChunkEntity(@PrimaryKey val id: String, val lessonId: String, val path: String,
-    val startSample: Long, val sampleCount: Long = 0)
+    val startSample: Long, val sampleCount: Long = 0,
+    @ColumnInfo(defaultValue = "0") val sealed: Boolean = false)
 
 @Entity(tableName = "segments", indices = [Index("lessonId")])
 data class SegmentEntity(@PrimaryKey val id: String, val lessonId: String,
@@ -51,11 +65,20 @@ data class EditedNoteEntity(@PrimaryKey val lessonId: String, val markdown: Stri
 
 @Dao
 interface LectureDao {
+    @Query("SELECT * FROM remote_sessions WHERE lessonId=:id") suspend fun remoteSession(id: String): RemoteSessionEntity?
+    @Query("SELECT * FROM remote_sessions WHERE complete=0") suspend fun pendingRemoteSessions(): List<RemoteSessionEntity>
+    @Query("SELECT * FROM remote_sessions WHERE lessonId=:id") fun observeRemoteSession(id: String): Flow<RemoteSessionEntity?>
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun putRemoteSession(value: RemoteSessionEntity)
+    @Query("SELECT * FROM remote_chunks WHERE lessonId=:id ORDER BY sequence") suspend fun remoteChunks(id: String): List<RemoteChunkEntity>
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun putRemoteChunk(value: RemoteChunkEntity)
+    @Query("DELETE FROM remote_chunks WHERE lessonId IN (:ids)") suspend fun deleteRemoteChunks(ids: List<String>)
+    @Query("DELETE FROM remote_sessions WHERE lessonId IN (:ids)") suspend fun deleteRemoteSessions(ids: List<String>)
+    @Query("UPDATE chunks SET sampleCount=:count,sealed=1 WHERE id=:id") suspend fun sealChunk(id: String, count: Long)
     @Query("SELECT * FROM lessons ORDER BY createdAt DESC") fun observeLessons(): Flow<List<LessonEntity>>
     @Query("SELECT * FROM lessons WHERE id=:id") fun observeLesson(id: String): Flow<LessonEntity?>
     @Query("SELECT * FROM lessons WHERE id=:id") suspend fun lesson(id: String): LessonEntity?
     @Query("SELECT * FROM lessons WHERE id IN (:ids)") suspend fun lessons(ids: List<String>): List<LessonEntity>
-    @Query("SELECT id FROM lessons WHERE status IN ('recording','paused','processing','importing','transcribing') UNION SELECT lessonId FROM jobs WHERE status IN ('running','queued','retrying','waiting')")
+    @Query("SELECT id FROM lessons WHERE status IN ('recording','paused','processing','importing','transcribing','remote_waiting') UNION SELECT lessonId FROM jobs WHERE status IN ('running','queued','retrying','waiting')")
     fun observeBusyLessonIds(): Flow<List<String>>
     @Query("SELECT COUNT(*) FROM jobs WHERE lessonId IN (:ids) AND status IN ('running','queued','retrying','waiting')") suspend fun runningJobs(ids: List<String>): Int
     @Query("SELECT title FROM lessons WHERE scheduleKey=:key") suspend fun titlesForSchedule(key: String): List<String>
@@ -121,10 +144,19 @@ interface LectureDao {
 }
 
 @Database(entities = [LessonEntity::class, ChunkEntity::class, SegmentEntity::class, PhotoEntity::class,
-    JobEntity::class, NoteBatchEntity::class, EditedNoteEntity::class, ScheduleSourceEntity::class], version = 6, exportSchema = false)
+    JobEntity::class, NoteBatchEntity::class, EditedNoteEntity::class, ScheduleSourceEntity::class,
+    RemoteSessionEntity::class, RemoteChunkEntity::class], version = 7, exportSchema = false)
 abstract class LectureDatabase : RoomDatabase() {
     abstract fun dao(): LectureDao
     companion object {
+        val MIGRATION_6_7 = object : androidx.room.migration.Migration(6, 7) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE lessons ADD COLUMN recognitionMode TEXT NOT NULL DEFAULT 'local'")
+                db.execSQL("ALTER TABLE chunks ADD COLUMN sealed INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("CREATE TABLE IF NOT EXISTS remote_sessions (lessonId TEXT NOT NULL PRIMARY KEY, identity TEXT NOT NULL, configVersion TEXT NOT NULL, tokenCipher TEXT NOT NULL, stopped INTEGER NOT NULL, endSent INTEGER NOT NULL, finalJson TEXT NOT NULL, manifestJson TEXT NOT NULL, uploaded INTEGER NOT NULL, indexRevision INTEGER NOT NULL, state TEXT NOT NULL, error TEXT NOT NULL, attempts INTEGER NOT NULL, complete INTEGER NOT NULL, retryRequested INTEGER NOT NULL)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS remote_chunks (lessonId TEXT NOT NULL, sequence INTEGER NOT NULL, chunkId TEXT NOT NULL, audioSha TEXT NOT NULL, transcriptSha TEXT NOT NULL, transcriptBytes INTEGER NOT NULL, PRIMARY KEY(lessonId, sequence))")
+            }
+        }
         val MIGRATION_5_6 = object : androidx.room.migration.Migration(5, 6) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE jobs ADD COLUMN pendingSyncRevision INTEGER NOT NULL DEFAULT -1")

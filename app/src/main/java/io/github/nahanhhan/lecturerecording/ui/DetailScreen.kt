@@ -53,6 +53,9 @@ import java.io.File
     val segments by remember(id) { graph.dao.observeSegments(id) }.collectAsStateWithLifecycle(initialValue = emptyList())
     val photos by remember(id) { graph.dao.observePhotos(id) }.collectAsStateWithLifecycle(initialValue = emptyList())
     val jobs by remember(id) { graph.dao.observeJobs(id) }.collectAsStateWithLifecycle(initialValue = emptyList())
+    val remoteSession by remember(id) { graph.dao.observeRemoteSession(id) }.collectAsStateWithLifecycle(initialValue = null)
+    var remoteRefreshing by remember(id) { mutableStateOf(false) }
+    var remoteRefresh by remember(id) { mutableStateOf(0) }
     val editedNote by remember(id) { graph.dao.observeEditedNote(id) }.collectAsStateWithLifecycle(initialValue = null)
     val recording by graph.recording.collectAsStateWithLifecycle()
     val importing by graph.importing.collectAsStateWithLifecycle()
@@ -81,6 +84,15 @@ import java.io.File
     var confirmDelete by remember { mutableStateOf(false) }
     var noteBatches by remember { mutableStateOf<List<NoteBatchEntity>>(emptyList()) }
     val scope = rememberCoroutineScope()
+    LaunchedEffect(id, lesson?.recognitionMode, remoteRefresh) {
+        if (lesson?.recognitionMode == "remote") {
+            remoteRefreshing = true
+            try { graph.remote.refresh(id); error = "" }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (exception: Exception) { error = if (exception is IllegalStateException || exception is IllegalArgumentException || exception is java.io.IOException) exception.message.orEmpty() else "原稿检查未完成，请稍后刷新" }
+            finally { remoteRefreshing = false }
+        }
+    }
     val player = remember { ExoPlayer.Builder(activity).build() }
     var playing by remember { mutableStateOf(false) }
     DisposableEffect(player) { onDispose { player.release() } }
@@ -119,7 +131,7 @@ import java.io.File
         Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row {
                 Text(current.title, Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
-                TextButton(enabled = !active && !importActive && !cloudRunning && current.status !in setOf("recording", "paused", "processing", "importing", "transcribing"), onClick = { confirmDelete = true }) {
+                TextButton(enabled = !active && !importActive && !cloudRunning && current.status !in setOf("recording", "paused", "processing", "importing", "transcribing", "remote_waiting"), onClick = { confirmDelete = true }) {
                     Text("删除录音", color = MaterialTheme.colorScheme.error)
                 }
             }
@@ -127,6 +139,30 @@ import java.io.File
             Text(NoteProcessing.label(jobs.firstOrNull()?.status, jobs.firstOrNull()?.revision, current.revision), style = MaterialTheme.typography.labelLarge)
             if (current.error.isNotBlank()) Text(current.error, color = MaterialTheme.colorScheme.error)
             if (imported) Text("导入音频只整理文字，不追加录音或拍照。", style = MaterialTheme.typography.bodySmall)
+            if (current.recognitionMode == "remote") {
+                val state = remoteSession
+                Text("远程识别 · 已上传 ${state?.uploaded ?: 0} 块 · 已取回 ${segments.size} 块", style = MaterialTheme.typography.bodySmall)
+                Text(when {
+                    state?.complete == true -> "完整原稿已保存，可离线阅读和编辑"
+                    state?.state == "failed" -> "远程任务待重试"
+                    state?.state == "paused" -> "连接配置变化，任务已暂停"
+                    state?.stopped == true -> "等待完整原稿"
+                    else -> "音频封存后自动上传"
+                }, style = MaterialTheme.typography.bodySmall)
+                if (!state?.error.isNullOrBlank()) Text(state!!.error, color = MaterialTheme.colorScheme.error)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(enabled = !remoteRefreshing, onClick = { remoteRefresh++ }) { Text(if (remoteRefreshing) "检查中" else "刷新原稿") }
+                    if (state?.complete != true && state?.state != "cancelled") TextButton(enabled = !remoteRefreshing, onClick = {
+                        scope.launch { try { graph.remote.retry(id); error = "已排队重试" } catch (exception: Exception) { error = exception.message ?: "重试失败" } }
+                    }) { Text("重试远程任务") }
+                    if (state?.stopped == true && state.complete != true && state.state != "cancelled" && !active && !importActive) TextButton(onClick = {
+                        scope.launch { try { graph.remote.cancel(id) } catch (_: Exception) { error = "停止通知未确认，本地状态已保留" } }
+                    }) { Text("停止远程任务") }
+                    if (!active && !importActive && current.status == "interrupted" && state?.stopped != true) TextButton(onClick = {
+                        scope.launch { try { graph.remote.stop(id); error = "" } catch (exception: Exception) { error = exception.message ?: "结束失败" } }
+                    }) { Text("结束并提交原稿") }
+                }
+            }
             if (importActive) {
                 Text(importing.message, style = MaterialTheme.typography.bodyMedium)
                 OutlinedButton(onClick = { activity.startService(Intent(activity, AudioImportService::class.java).setAction(AudioImportService.CANCEL)) }) { Text("暂停音频处理") }
@@ -149,7 +185,7 @@ import java.io.File
                     if (current.status == "interrupted" && !imported) OutlinedButton(enabled = recording.lessonId == null && importing.lessonId == null, onClick = {
                         activity.beginRecording(Intent(activity, RecordingService::class.java).setAction(RecordingService.START).putExtra("lesson_id", id))
                     }) { Text("继续录音") }
-                    if (!imported && segments.any { it.status != "ready" }) OutlinedButton(enabled = recording.lessonId == null && importing.lessonId == null && !cloudRunning, onClick = {
+                    if (current.recognitionMode == "local" && !imported && segments.any { it.status != "ready" }) OutlinedButton(enabled = recording.lessonId == null && importing.lessonId == null && !cloudRunning, onClick = {
                         activity.beginRecording(Intent(activity, RecordingService::class.java).setAction(RecordingService.DRAIN).putExtra("lesson_id", id))
                     }) { Text("完成待转写段落") }
                     if (imported && (current.status == "import_interrupted" || segments.any { it.status != "ready" })) OutlinedButton(
@@ -159,6 +195,7 @@ import java.io.File
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(enabled = !noteStarting && !cloudRunning && !importActive && current.status !in setOf("recording", "paused", "processing", "importing", "transcribing") &&
+                        (current.recognitionMode != "remote" || remoteSession?.complete == true) &&
                         (!imported || (current.importReady && segments.isNotEmpty() && segments.all { it.status == "ready" })), onClick = {
                         if (!graph.settings.cloudTested) error = "请先在设置中配置并测试云端接口"
                         else {

@@ -28,7 +28,7 @@ class RecordingRepository(private val graph: AppGraph) {
             try {
                 graph.database.withTransaction {
                     val records = requested.chunked(500).flatMap { graph.dao.lessons(it) }
-                    check(records.none { it.status in setOf("recording", "paused", "processing", "importing", "transcribing") ||
+                    check(records.none { it.status in setOf("recording", "paused", "processing", "importing", "transcribing", "remote_waiting") ||
                         it.id == graph.recording.value.lessonId || it.id == graph.cloudLessonId.value || it.id == graph.importing.value.lessonId }) {
                         "正在录音、转写或整理的记录暂不能删除，请等待任务结束"
                     }
@@ -40,6 +40,7 @@ class RecordingRepository(private val graph: AppGraph) {
                         existing.chunked(500).forEach { batch ->
                             graph.dao.deleteBatches(batch); graph.dao.deleteJobs(batch)
                             graph.dao.deletePhotos(batch); graph.dao.deleteSegments(batch)
+                            graph.dao.deleteRemoteChunks(batch); graph.dao.deleteRemoteSessions(batch)
                             graph.dao.deleteChunks(batch); graph.dao.deleteEditedNotes(batch)
                             graph.dao.deleteLessons(batch)
                         }
@@ -59,6 +60,7 @@ class RecordingRepository(private val graph: AppGraph) {
                 }
             }
             requested.forEach { id ->
+                graph.remote.remove(id)
                 runCatching { graph.webDav.remove(id) }.onFailure {
                     AppLog.e("RecordingRepository", "上传快照将于下次启动继续清理")
                 }

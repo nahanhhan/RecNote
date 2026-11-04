@@ -70,6 +70,39 @@ class WebDavClient(address: String, private val username: String = "", private v
         }
     }
 
+    /** 远程音频通道有独立目录和显式 MIME；不复用笔记文件打包。 */
+    suspend fun putRemote(directory: String, filename: String, bytes: ByteArray) {
+        require(bytes.size <= io.github.nahanhhan.lecture.core.RemoteProtocol.MANIFEST_LIMIT)
+        request(url(directory, filename), "PUT", bytes.toRequestBody("application/json; charset=utf-8".toMediaType())).use {
+            if (it.code !in setOf(200, 201, 204)) throw failure(it.code)
+        }
+    }
+    suspend fun putRemoteAudio(directory: String, filename: String, file: File) {
+        require(file.isFile && file.length() in 46..(44 + 16000L * 31 * 2)) { "音频块缺失或大小无效" }
+        request(url(directory, filename), "PUT", file.asRequestBody("audio/wav".toMediaType())).use {
+            if (it.code !in setOf(200, 201, 204)) throw failure(it.code)
+        }
+    }
+    suspend fun readRemote(directory: String, filename: String, limit: Int): ByteArray? {
+        require(limit in 1..io.github.nahanhhan.lecture.core.RemoteProtocol.MANIFEST_LIMIT)
+        return request(url(directory, filename), "GET", headers = mapOf("Cache-Control" to "no-cache")).use {
+            if (it.code == 404) return@use null
+            if (it.code != 200) throw failure(it.code)
+            val source = it.body?.source() ?: throw WebDavFailure(0, "网盘未返回文件内容")
+            val buffer = okio.Buffer()
+            while (buffer.size <= limit) {
+                if (source.read(buffer, minOf(8192L, limit + 1L - buffer.size)) == -1L) break
+            }
+            check(buffer.size <= limit) { "远程文件超过允许大小" }
+            buffer.readByteArray()
+        }
+    }
+    suspend fun deleteRemoteProbe(directory: String) {
+        require(directory.matches(Regex("RecNoteRemote/probe-[a-zA-Z0-9-]+")))
+        request(url(directory, "probe.json"), "DELETE").use { if (it.code !in setOf(200, 202, 204, 404)) throw failure(it.code) }
+        request(url(directory), "DELETE").use { if (it.code !in setOf(200, 202, 204, 404)) throw failure(it.code) }
+    }
+
     private suspend fun requireCollection(target: HttpUrl) {
         val body = """<?xml version="1.0" encoding="utf-8"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/></d:prop></d:propfind>"""
         request(target, "PROPFIND", body.toRequestBody("application/xml; charset=utf-8".toMediaType()), mapOf("Depth" to "0")).use {

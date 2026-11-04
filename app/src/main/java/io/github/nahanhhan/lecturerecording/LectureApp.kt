@@ -22,7 +22,7 @@ data class ImportState(val lessonId: String? = null, val status: String = "idle"
 class AppGraph(val app: Application) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val database = Room.databaseBuilder(app, LectureDatabase::class.java, "lectures.db")
-        .addMigrations(LectureDatabase.MIGRATION_1_2, LectureDatabase.MIGRATION_2_3, LectureDatabase.MIGRATION_3_4, LectureDatabase.MIGRATION_4_5, LectureDatabase.MIGRATION_5_6).build()
+        .addMigrations(LectureDatabase.MIGRATION_1_2, LectureDatabase.MIGRATION_2_3, LectureDatabase.MIGRATION_3_4, LectureDatabase.MIGRATION_4_5, LectureDatabase.MIGRATION_5_6, LectureDatabase.MIGRATION_6_7).build()
     val dao = database.dao()
     val schedules = ScheduleRepository(app, dao)
     val settings = SettingsStore(app)
@@ -40,6 +40,7 @@ class AppGraph(val app: Application) {
     val modelOperations = Mutex()
     val models = io.github.nahanhhan.lecturerecording.models.ModelManager(this)
     val webDav = WebDavSyncRepository(this)
+    val remote = io.github.nahanhhan.lecturerecording.remote.RemoteRepository(this)
     fun lessonDir(id: String) = File(app.filesDir, "lessons/$id").apply { mkdirs() }
     val initialized = scope.async {
         recordings.recoverDeletions()
@@ -48,7 +49,7 @@ class AppGraph(val app: Application) {
             val file = File(chunk.path)
             if (file.exists()) {
                 val samples = WavFile.repair(file)
-                dao.setChunkSamples(chunk.id, samples)
+                dao.sealChunk(chunk.id, samples)
                 val lesson = dao.lesson(chunk.lessonId)
                 if (lesson != null && chunk.startSample + samples > lesson.samples)
                     dao.setSamples(lesson.id, chunk.startSample + samples)
@@ -68,7 +69,7 @@ class LectureApp : Application() {
             android.webkit.WebView.enableSlowWholeDocumentDraw()
             graph = AppGraph(this)
             ScheduleRefreshWorker.schedule(this)
-            graph.scope.launch { graph.initialized.await(); graph.notes.restore(); graph.webDav.restore() }
+            graph.scope.launch { graph.initialized.await(); graph.notes.restore(); graph.webDav.restore(); graph.remote.restore() }
         }
     }
 }

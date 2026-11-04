@@ -89,21 +89,27 @@ class RecordingService : Service() {
             val value = if (existingId != null) requireNotNull(graph.dao.lesson(existingId)) { "录音记录已删除" } else LessonEntity(
                 UUID.randomUUID().toString(), intent.getStringExtra("title")?.ifBlank { "课堂录音" } ?: "课堂录音",
                 intent.getStringExtra("course") ?: "", System.currentTimeMillis(), modelId = graph.settings.modelId,
-                scheduleKey = intent.getStringExtra(EXTRA_SCHEDULE_KEY) ?: "", scheduleTitle = intent.getStringExtra(EXTRA_SCHEDULE_TITLE) ?: "")
+                scheduleKey = intent.getStringExtra(EXTRA_SCHEDULE_KEY) ?: "", scheduleTitle = intent.getStringExtra(EXTRA_SCHEDULE_TITLE) ?: "", recognitionMode = graph.settings.recognitionMode)
             check(value.sourceType != "import") { "导入音频不能追加麦克风录音，请使用音频导入流程继续转写" }
+            if (value.recognitionMode == "remote") {
+                graph.settings.requireRemote()
+                check(graph.dao.remoteSession(value.id)?.stopped != true || intent.action == DRAIN) { "此远程录音已结束，请新建录音" }
+            }
             lessonId = value.id
             graph.dao.putLesson(value.copy(status = if (intent.action == DRAIN) "processing" else "recording", error = ""))
+            if (value.recognitionMode == "remote") { graph.remote.bind(value); graph.remote.enqueue(value.id) }
             graph.captureClock.clear()
             graph.captureClock.record(System.currentTimeMillis(), value.samples)
             graph.recording.value = RecordingState(value.id, if (intent.action == DRAIN) "processing" else "recording", value.samples)
             value
         }
+        val remote = lesson.recognitionMode == "remote"
         val clock = SampleClock(initialSamples = lesson.samples)
         val modelReady = File(filesDir, "models/${lesson.modelId}/installed.json").exists()
         AppLog.i("RecordingService", "录音课堂 lesson=${lesson.id} 模型=${lesson.modelId} 模型已安装=$modelReady")
-        asr = AsrClient(this@RecordingService)
-        if (!modelReady) graph.recording.update { it.copy(warning = "模型尚未安装，音频仍正常保存") }
-        val consumer = launch {
+        if (!remote) asr = AsrClient(this@RecordingService)
+        if (!remote && !modelReady) graph.recording.update { it.copy(warning = "模型尚未安装，音频仍正常保存") }
+        val consumer = if (remote) null else launch {
             for (work in queue) {
                 if (!work.final && (work.segmentId in finalized || latestPreview[work.segmentId] != work.path)) {
                     File(work.path).delete()
@@ -153,10 +159,10 @@ class RecordingService : Service() {
             graph.recording.update { it.copy(queueSize = it.queueSize + 1) }
             queue.send(work)
         }
-        if (modelReady) graph.dao.unfinishedSegments(lesson.id).forEach { segment ->
+        if (!remote && modelReady) graph.dao.unfinishedSegments(lesson.id).forEach { segment ->
             enqueue(Work(segment.id, segment.audioPath, true))
         }
-        val segmenter = SpeechSegmenter()
+        val segmenter = if (remote) null else SpeechSegmenter()
         suspend fun submit(window: SpeechSegmenter.Window) {
             val id = "${lesson.id}_seg_${window.startSample}"
             val directory = File(graph.lessonDir(lesson.id), "asr").apply { mkdirs() }
@@ -194,14 +200,21 @@ class RecordingService : Service() {
                 var wasPaused = false
                 var chunk: WavFile? = null
                 var chunkRecord: ChunkEntity? = null
+                suspend fun closeChunk() {
+                    val wav = chunk ?: return
+                    chunk = null
+                    wav.close()
+                    graph.remote.sealed(requireNotNull(chunkRecord), wav.samples)
+                    chunkRecord = null
+                }
                 var lastCheckpoint = clock.samples
                 try {
                     while (isActive && !stopping.get()) {
                         if (paused.get()) {
                             if (!wasPaused) {
                                 AppLog.i("RecordingService", "录音暂停 samples=${clock.samples}")
-                                audio!!.stop(); segmenter.finish()?.let { submit(it) }
-                                chunk?.close(); chunk?.let { graph.dao.setChunkSamples(chunkRecord!!.id, it.samples) }; chunk = null
+                                audio!!.stop(); segmenter?.finish()?.let { submit(it) }
+                                closeChunk()
                                 graph.dao.setSamples(lesson.id, clock.samples)
                                 graph.dao.setStatus(lesson.id, "paused")
                                 graph.recording.update { it.copy(status = "paused") }; foreground("录音已暂停")
@@ -229,27 +242,28 @@ class RecordingService : Service() {
                         val start = clock.samples; clock.advance(count)
                         graph.recording.update { it.copy(samples = clock.samples) }
                         graph.captureClock.record(System.currentTimeMillis(), clock.samples)
-                        segmenter.accept(buffer.copyOf(count), start).forEach { submit(it) }
+                        segmenter?.accept(buffer.copyOf(count), start)?.forEach { submit(it) }
                         if (clock.samples - lastCheckpoint >= 16000) {
                             chunk!!.checkpoint(); graph.dao.setChunkSamples(chunkRecord!!.id, chunk!!.samples)
                             graph.dao.setSamples(lesson.id, clock.samples); lastCheckpoint = clock.samples
                         }
-                        if (chunk!!.samples >= 16000 * 30) { chunk!!.close(); chunk = null }
+                        if (chunk!!.samples >= 16000 * 30) closeChunk()
                     }
                 } finally {
-                    chunk?.close(); chunk?.let { graph.dao.setChunkSamples(chunkRecord!!.id, it.samples) }
+                    withContext(NonCancellable) { closeChunk() }
                     graph.dao.setSamples(lesson.id, clock.samples)
                     runCatching { audio?.stop() }
-                    segmenter.finish()?.let { submit(it) }
+                    segmenter?.finish()?.let { submit(it) }
                 }
             }
+            if (remote) { graph.remote.stop(lesson.id); return@coroutineScope }
             graph.dao.setStatus(lesson.id, "processing"); graph.recording.update { it.copy(status = "processing") }
             AppLog.i("RecordingService", "录音结束，完成剩余转写 lesson=${lesson.id}")
             foreground("正在完成剩余转写")
-            queue.close(); consumer.join()
+            queue.close(); consumer?.join()
             graph.dao.setStatus(lesson.id, "completed")
             AppLog.i("RecordingService", "全部转写完成 lesson=${lesson.id}")
-        } finally { ticker?.cancel(); stopTriggers.endSession(); renewal.cancel(); queue.close(); consumer.cancel() }
+        } finally { ticker?.cancel(); stopTriggers.endSession(); renewal.cancel(); queue.close(); consumer?.cancel() }
     }
     private fun releaseWake() { if (wake?.isHeld == true) wake?.release() }
     private fun foreground(text: String) {

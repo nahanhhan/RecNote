@@ -37,6 +37,33 @@ data class WebDavSettings(val baseUrl: String = "", val username: String = "", v
 
 class SettingsStore(context: Context) {
     private val preferences = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    var recognitionMode: String
+        get() = if (preferences.getString("recognition_mode", "local") == "remote") "remote" else "local"
+        set(value) { require(value in setOf("local", "remote")); check(preferences.edit().putString("recognition_mode", value).commit()) }
+    fun remote() = RemoteSettings(preferences.getString("remote_url", "").orEmpty(),
+        decrypt(preferences.getString("remote_token_cipher", null)), preferences.getLong("remote_revision", 0))
+    @Synchronized fun saveRemote(value: RemoteSettings): RemoteSettings {
+        val old = remote()
+        val normalized = value.copy(baseUrl = if (value.baseUrl.isBlank()) "" else WebDavClient.normalize(value.baseUrl), token = value.token.trim())
+        require(normalized.token.none { it.isISOControl() }) { "连接凭据包含无效字符" }
+        val saved = normalized.copy(revision = if (old.baseUrl != normalized.baseUrl || old.token != normalized.token) old.revision + 1 else old.revision)
+        check(preferences.edit().putString("remote_url", saved.baseUrl).putString("remote_token_cipher", encrypt(saved.token))
+            .putLong("remote_revision", saved.revision).commit()) { "远程设置保存失败" }
+        return saved
+    }
+    /** 连接身份与版本号分开：恢复原配置后可显式重试；同步开关不改变音频授权。 */
+    fun remoteIdentity(): String {
+        val r = remote(); val w = webDav()
+        return io.github.nahanhhan.lecture.core.RemoteProtocol.sha256(protocolJson.encodeToString(
+            listOf(r.baseUrl, r.token, w.baseUrl, w.username, w.password)).toByteArray(Charsets.UTF_8))
+    }
+    fun remoteVersion() = "${remote().revision}:${preferences.getLong("webdav_connection_revision", 0)}"
+    fun requireRemote() {
+        check(remote().baseUrl.isNotBlank() && remote().token.isNotBlank()) { "请先配置电脑识别地址和连接凭据" }
+        check(webDav().baseUrl.isNotBlank()) { "请先配置手机 OpenList 的 WebDAV 地址和账号" }
+    }
+    fun encryptTaskToken(token: String) = encrypt(token)
+    fun decryptTaskToken(cipher: String) = decrypt(cipher)
     var scheduleEnabled: Boolean
         get() = preferences.getBoolean("schedule_enabled", true)
         set(value) { preferences.edit().putBoolean("schedule_enabled", value).apply() }
@@ -60,7 +87,9 @@ class SettingsStore(context: Context) {
         val saved = normalized.copy(revision = if (changed) old.revision + 1 else old.revision)
         check(preferences.edit().putString("webdav_url", saved.baseUrl)
             .putString("webdav_user_cipher", encrypt(saved.username)).putString("webdav_password_cipher", encrypt(saved.password))
-            .putBoolean("webdav_enabled", saved.enabled).putLong("webdav_revision", saved.revision).commit()) { "网盘设置保存失败，请重试" }
+            .putBoolean("webdav_enabled", saved.enabled).putLong("webdav_revision", saved.revision)
+            .putLong("webdav_connection_revision", preferences.getLong("webdav_connection_revision", 0) +
+                if (old.baseUrl != saved.baseUrl || old.username != saved.username || old.password != saved.password) 1 else 0).commit()) { "网盘设置保存失败，请重试" }
         return saved
     }
 
@@ -213,4 +242,8 @@ class SettingsStore(context: Context) {
         preferences.edit().putBoolean("cloud_${value.provider.id}_tested", true)
             .putBoolean("preset_${value.presetId}_tested", true).apply()
     }
+}
+
+data class RemoteSettings(val baseUrl: String = "", val token: String = "", val revision: Long = 0) {
+    override fun toString() = "RemoteSettings(revision=$revision, credentials=***)"
 }

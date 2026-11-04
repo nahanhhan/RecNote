@@ -82,6 +82,10 @@ class MainActivity : ComponentActivity() {
         }
     }
     fun beginRecording(intent: Intent) {
+        if (intent.getStringExtra("lesson_id") == null && graph.settings.recognitionMode == "remote") {
+            try { graph.settings.requireRemote() }
+            catch (error: IllegalStateException) { Toast.makeText(this, error.message, Toast.LENGTH_LONG).show(); return }
+        }
         AppLog.i("MainActivity", "请求开始录音 action=${intent.action}")
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
             ContextCompat.startForegroundService(this, intent)
@@ -120,6 +124,7 @@ class MainActivity : ComponentActivity() {
             graph.initialized.await()
             graph.notes.restore()
             graph.webDav.restore()
+            graph.remote.restore()
             graph.schedules.refreshStale(ScheduleRefreshWorker.STALE_MS)
         }
     }
@@ -306,6 +311,8 @@ class MainActivity : ComponentActivity() {
 fun statusLabel(status: String): String = when (status) {
     "recording" -> "正在录音"; "paused" -> "已暂停"; "processing" -> "正在完成转写"
     "completed" -> "已完成"; "interrupted" -> "已中断，可恢复"; "running" -> "正在整理"
+    "remote_waiting" -> "等待电脑转写"
+    "remote_cancelled" -> "远程任务已停止"
     "importing" -> "正在导入音频"; "transcribing" -> "正在转写导入音频"; "import_interrupted" -> "音频处理待继续"
     "waiting" -> "等待继续"; "pending" -> "待转写"; "ready" -> "已转写"; "error" -> "待核对"; else -> status
 }

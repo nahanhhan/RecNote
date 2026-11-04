@@ -40,8 +40,19 @@ import java.time.format.DateTimeFormatter
     var modelRefresh by remember { mutableStateOf(0) }
     var deleteModel by remember { mutableStateOf<ModelSpec?>(null) }
     var modelMessage by remember { mutableStateOf("") }
+    var recognitionMode by remember { mutableStateOf(graph.settings.recognitionMode) }
     val scope = rememberCoroutineScope()
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text("语音识别方式", style = MaterialTheme.typography.titleLarge)
+        SingleChoiceSegmentedButtonRow(Modifier.testTag("recognition-mode")) {
+            listOf("local" to "本地模式", "remote" to "远程模式").forEachIndexed { index, (mode, label) ->
+                SegmentedButton(selected = recognitionMode == mode, onClick = { graph.settings.recognitionMode = mode; recognitionMode = mode },
+                    shape = SegmentedButtonDefaults.itemShape(index, 2), icon = {}, label = { Text(label) })
+            }
+        }
+        Text("切换仅影响新录音和新导入；已有记录继续使用创建时的识别方式。", style = MaterialTheme.typography.bodySmall)
+        if (recognitionMode == "remote") RemoteSettingsPanel(graph)
+        if (recognitionMode == "local") {
         Text("本地识别模型", style = MaterialTheme.typography.titleLarge)
         Text("模型下载完成后在手机本地转写。默认模型下载约 800 MB，安装后约 1.2 GB，请预留至少 3 GB 空间。若下载失败，请尝试切换下载源。", style = MaterialTheme.typography.bodyMedium)
         val switchEnabled = !modelBusy && recording.lessonId == null && importing.lessonId == null && download.status !in setOf("downloading", "verifying", "installing")
@@ -97,6 +108,7 @@ import java.time.format.DateTimeFormatter
             }
         }
         if (modelMessage.isNotBlank()) Text(modelMessage)
+        }
         HorizontalDivider()
         SchedulePanel(activity, graph)
         HorizontalDivider()

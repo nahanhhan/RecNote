@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import json_assets, kotlin_comments, log_redaction, model_sources, version_consistency, webdav_safety, prompt_contracts
+from . import remote_safety
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -24,6 +25,7 @@ CHECKS: list[tuple[str, CheckFn]] = [
     ("日志脱敏规则", log_redaction.run),
     ("WebDAV 安全边界", webdav_safety.run),
     ("系统提示词边界", prompt_contracts.run),
+    ("远程通道安全边界", remote_safety.run),
 ]
 
 

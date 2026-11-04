@@ -36,11 +36,13 @@ class AudioImportService : Service() {
                     val record = if (existing != null) requireNotNull(graph.dao.lesson(existing)) { "音频记录已删除" } else {
                         check(!intent?.getStringExtra("uri").isNullOrBlank()) { "请选择音频文件" }
                         LessonEntity(UUID.randomUUID().toString(), intent?.getStringExtra("title")?.ifBlank { "导入音频" } ?: "导入音频",
-                            intent?.getStringExtra("course").orEmpty(), System.currentTimeMillis(), "importing", modelId = graph.settings.modelId, sourceType = "import")
+                            intent?.getStringExtra("course").orEmpty(), System.currentTimeMillis(), "importing", modelId = graph.settings.modelId, sourceType = "import", recognitionMode = graph.settings.recognitionMode)
                     }
                     check(record.sourceType == "import" && graph.cloudLessonId.value != record.id && graph.dao.runningJobs(listOf(record.id)) == 0) { "当前记录不能导入或正在整理笔记" }
                     lessonId = record.id
+                    if (record.recognitionMode == "remote") graph.settings.requireRemote()
                     graph.dao.putLesson(record.copy(status = if (record.importReady) "transcribing" else "importing", error = ""))
+                    if (record.recognitionMode == "remote") { graph.remote.bind(record); graph.remote.enqueue(record.id) }
                     graph.importing.value = ImportState(record.id, "importing", "正在准备音频")
                     record
                 }
