@@ -49,33 +49,73 @@ class RemoteRepository(private val graph: AppGraph) {
         enqueue(id)
     }
     suspend fun restore() {
-        graph.dao.pendingRemoteSessions().filter { it.state !in setOf("paused", "failed", "cancelled") }.forEach { enqueue(it.lessonId) }
+        graph.dao.pendingRemoteSessions().filter { it.contractRevision == 2 && it.state !in setOf("paused", "failed", "cancelled") }.forEach { enqueue(it.lessonId) }
+        graph.dao.remoteCancellations().filter { it.state in setOf("pending", "retrying") }.forEach { RemoteCancelWorker.enqueue(graph.app, it.lessonId) }
     }
     suspend fun configurationChanged() {
         graph.dao.pendingRemoteSessions().forEach { value ->
             if (value.configVersion != graph.settings.remoteVersion())
                 update(value.lessonId) { it.copy(state = "paused", error = "连接配置已改变；恢复原配置后点击重试") }
         }
+        graph.dao.remoteCancellations().forEach { value ->
+            if (value.configVersion != graph.settings.remoteVersion()) graph.dao.putRemoteCancellation(value.copy(state = "paused", error = "原连接配置已改变，取消通知已保留"))
+        }
     }
     suspend fun retry(id: String) {
         val session = requireNotNull(graph.dao.remoteSession(id))
+        check(session.contractRevision == 2) { "旧协议任务需按新协议重建" }
         check(session.state != "cancelled") { "此远程任务已取消，请新建录音" }
         check(session.identity == graph.settings.remoteIdentity()) { "请恢复此录音原来的电脑和云盘配置" }
         update(id) { it.copy(configVersion = graph.settings.remoteVersion(), state = "pending", error = "", attempts = 0,
             retryRequested = it.tokenCipher.isNotBlank()) }
         enqueue(id)
     }
+    suspend fun restartLegacy(id: String): String = withContext(Dispatchers.IO) { graph.lessonOperations.withLock {
+        val old = requireNotNull(graph.dao.lesson(id))
+        check(graph.dao.remoteSession(id)?.contractRevision == 1) { "此任务无需迁移" }
+        check(graph.recording.value.lessonId == null && graph.importing.value.lessonId == null && graph.dao.runningJobs(listOf(id)) == 0) { "请等待当前处理结束" }
+        graph.settings.requireRemote()
+        val newId = UUID.randomUUID().toString()
+        val directory = graph.lessonDir(newId)
+        var committed = false
+        try {
+            val chunks = graph.dao.chunks(id).filter { it.sealed && it.sampleCount > 0 }.map { source ->
+                val file = File(directory, "audio_${source.startSample}.wav")
+                File(source.path).copyTo(file)
+                source.copy(id = UUID.randomUUID().toString(), lessonId = newId, path = file.path)
+            }
+            val photos = graph.dao.photos(id).map { photo ->
+                val name = WebDavPaths.filename(photo.filename)
+                File(graph.lessonDir(id), name).copyTo(File(directory, name))
+                photo.copy(id = UUID.randomUUID().toString(), lessonId = newId)
+            }
+            val record = old.copy(id = newId, title = old.title + "（重新转写）", createdAt = System.currentTimeMillis(),
+                status = "remote_waiting", revision = 1, error = "", importReady = old.sourceType == "import")
+            graph.database.withTransaction {
+                check(graph.dao.lesson(id) != null) { "原录音已删除" }
+                prepareRemoval(id)
+                graph.dao.putLesson(record); graph.dao.putChunks(chunks)
+                photos.forEach { graph.dao.putPhoto(it) }
+                graph.dao.putRemoteSession(RemoteSessionEntity(newId, graph.settings.remoteIdentity(), graph.settings.remoteVersion()))
+                graph.dao.remoteSession(id)?.let { graph.dao.putRemoteSession(it.copy(state = "cancelled")) }
+                graph.dao.setStatus(id, "remote_cancelled", "已创建新协议任务，原录音和原稿保留")
+            }
+            committed = true
+            stop(newId)
+            RemoteCancelWorker.enqueue(graph.app, id)
+            newId
+        } finally { if (!committed) directory.deleteRecursively() }
+    } }
     suspend fun cancel(id: String) {
         val session = graph.dao.remoteSession(id) ?: return
         check(session.stopped) { "请先结束录音或导入" }
-        update(id) { it.copy(state = "cancelled", error = "远程任务已停止，本地音频和云盘副本保留") }
+        graph.database.withTransaction {
+            prepareRemoval(id)
+            update(id) { it.copy(state = "cancelled", error = "远程取消已排队，等待电脑确认清理") }
+        }
         RemoteUploadWorker.cancel(graph.app, id)
         graph.dao.setStatus(id, "remote_cancelled")
-        if (session.tokenCipher.isNotEmpty()) {
-            try { RemoteControlClient(connection(session).first.baseUrl).action("cancel", graph.settings.decryptTaskToken(session.tokenCipher)) }
-            catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { /* 本地取消始终生效，对端通知为尽力发送。 */ }
-        }
+        RemoteCancelWorker.enqueue(graph.app, id)
     }
     suspend fun diagnose(id: String): String {
         val session = guard(id)
@@ -87,7 +127,7 @@ class RemoteRepository(private val graph: AppGraph) {
             "waiting_source" -> "电脑正在等待音频清单"
             "receiving" -> "电脑正在接收和识别音频"
             "draining" -> "电脑正在处理最后的音频"
-            "asr_completed" -> "电脑已完成识别，请刷新原稿"
+            "completed" -> "电脑已完成识别，请刷新原稿"
             "failed" -> "电脑识别失败，可重试远程任务"
             "cancelled" -> "电脑任务已取消"
             else -> "电脑返回了未知状态，请核对协议版本"
@@ -95,12 +135,55 @@ class RemoteRepository(private val graph: AppGraph) {
     }
     suspend fun remove(id: String, previous: RemoteSessionEntity? = null) {
         RemoteUploadWorker.cancel(graph.app, id)
-        // 云盘资料保留；本地会话删除后，所有迟到操作均无法写回数据库。
+        // 删除录音的事务已经持久保存取消意图，此队列不依赖录音行。
         graph.dao.deleteRemoteChunks(listOf(id)); graph.dao.deleteRemoteSessions(listOf(id))
-        if (previous != null && previous.tokenCipher.isNotEmpty() && !previous.complete) {
-            try { RemoteControlClient(connection(previous).first.baseUrl).action("cancel", graph.settings.decryptTaskToken(previous.tokenCipher)) }
-            catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { /* 取消通知失败不恢复已删除的本地记录。 */ }
+        if (graph.dao.remoteCancellation(id) != null) RemoteCancelWorker.enqueue(graph.app, id)
+    }
+    suspend fun prepareRemoval(id: String) {
+        val value = graph.dao.remoteSession(id) ?: return
+        val lesson = graph.dao.lesson(id) ?: return
+        if (graph.dao.remoteCancellation(id) == null) graph.dao.putRemoteCancellation(RemoteCancelEntity(
+            id, value.identity, value.configVersion, value.tokenCipher, lesson.title, lesson.sourceType))
+    }
+    suspend fun retryCancellations() {
+        graph.dao.remoteCancellations().filter { it.identity == graph.settings.remoteIdentity() }.forEach {
+            graph.dao.putRemoteCancellation(it.copy(state = "pending", configVersion = graph.settings.remoteVersion(), attempts = 0, error = ""))
+            RemoteCancelWorker.enqueue(graph.app, it.lessonId)
+        }
+    }
+    suspend fun sendCancellation(id: String): Boolean = executions.computeIfAbsent(id) { Mutex() }.withLock {
+        var value = graph.dao.remoteCancellation(id) ?: return@withLock true
+        if (value.state !in setOf("pending", "retrying")) return@withLock true
+        fun matched() = value.identity == graph.settings.remoteIdentity() && value.configVersion == graph.settings.remoteVersion()
+        if (!matched()) {
+            graph.dao.putRemoteCancellation(value.copy(state = "paused", error = "请恢复原连接后重试取消通知")); return@withLock true
+        }
+        try {
+            val config = graph.settings.remote()
+            check(matched()) { "原连接配置已改变" }
+            val control = RemoteControlClient(config.baseUrl)
+            // 开始响应丢失时以同一身份幂等取回 token，再取消，避免电脑留下孤立任务。
+            if (value.tokenCipher.isEmpty()) {
+                val started = control.start(RemoteStart(token = config.token, session_id = id, cloud_path = root(id), title = value.title, source_type = value.sourceType))
+                check(matched()) { "原连接配置已改变" }
+                if (graph.dao.remoteCancellation(id) == null) return@withLock true
+                value = value.copy(tokenCipher = graph.settings.encryptTaskToken(started.session_token))
+                graph.dao.putRemoteCancellation(value)
+            }
+            check(matched()) { "原连接配置已改变" }
+            val token = graph.settings.decryptTaskToken(value.tokenCipher)
+            check(token.isNotBlank()) { "取消任务凭据无法解密" }
+            control.action("cancel", token)
+            graph.dao.deleteRemoteCancellation(id)
+            true
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (error: Exception) {
+            if (error is RemoteFailure && error.errorCode == "session_terminal") { graph.dao.deleteRemoteCancellation(id); return@withLock true }
+            val current = graph.dao.remoteCancellation(id) ?: return@withLock true
+            val retry = matched() && error is java.io.IOException && (error !is RemoteFailure || error.retryable) && current.attempts < 4
+            graph.dao.putRemoteCancellation(current.copy(state = if (!matched()) "paused" else if (retry) "retrying" else "failed",
+                attempts = current.attempts + 1, error = if (error is RemoteFailure) error.message.orEmpty() else "取消未确认，已保留通知，可恢复原连接后重试"))
+            !retry
         }
     }
     private suspend fun update(id: String, transform: (RemoteSessionEntity) -> RemoteSessionEntity) = graph.database.withTransaction {
@@ -109,6 +192,7 @@ class RemoteRepository(private val graph: AppGraph) {
     private suspend fun guard(id: String): RemoteSessionEntity {
         check(graph.dao.lesson(id) != null) { "录音已删除" }
         val value = requireNotNull(graph.dao.remoteSession(id)) { "远程任务不存在" }
+        check(value.contractRevision == 2) { "旧协议任务已暂停，请按新协议重建任务" }
         check(value.state != "cancelled") { "远程任务已取消" }
         if (value.identity != graph.settings.remoteIdentity() || value.configVersion != graph.settings.remoteVersion()) {
             update(id) { it.copy(state = "paused", error = "连接配置已改变；恢复原配置后点击重试") }
@@ -136,7 +220,7 @@ class RemoteRepository(private val graph: AppGraph) {
                 check(graph.dao.lesson(id) != null) { "录音已删除" }
                 graph.dao.putRemoteChunk(RemoteChunkEntity(id, sequence, chunk.id, hash))
             }
-            RemoteAudioChunk(sequence, "audio/${RemoteProtocol.name(sequence)}.wav", chunk.startSample, chunk.sampleCount, file.length(), hash)
+            RemoteAudioChunk(sequence, RemoteProtocol.audioPath(id, sequence), chunk.startSample, chunk.sampleCount, hash)
         }.also { RemoteProtocol.manifest(RemoteManifest(id, 0, it)) }
     }
     /** 每次 worker 有限处理已封存块；后续封存事件继续追加工作，不建立后台结果轮询。 */
@@ -211,19 +295,28 @@ class RemoteRepository(private val graph: AppGraph) {
         val identity = graph.settings.remoteIdentity(config, webDav)
         val control = RemoteControlClient(config.baseUrl)
         control.health(config.token)
-        val data = dataClient(webDav); val path = "RecNoteRemote/probe-${UUID.randomUUID()}"
-        val bytes = "{\"recnote_probe\":1}".toByteArray(Charsets.UTF_8)
-        data.ensureDirectory(path)
+        val data = dataClient(webDav); val directory = "RecNoteRemote/_probe"; val filename = "${UUID.randomUUID()}.bin"
+        val path = "$directory/$filename"
+        val bytes = UUID.randomUUID().toString().toByteArray(Charsets.UTF_8)
+        data.ensureDirectory(directory)
         try {
-            data.putRemote(path, "probe.json", bytes)
-            check(data.readRemote(path, "probe.json", RemoteProtocol.CONTROL_LIMIT)?.contentEquals(bytes) == true) { "手机云盘读写不一致" }
-            control.probe(config.token, "$path/probe.json", RemoteProtocol.sha256(bytes))
+            data.putRemote(directory, filename, bytes, "application/octet-stream")
+            val probeHash = RemoteProtocol.sha256(bytes)
+            val response = control.probe(config.token, path, probeHash)
+            val receipt = requireNotNull(response.receipt)
+            val raw = data.readRemote(directory, "$filename.receipt.json", RemoteProtocol.CONTROL_LIMIT) ?: error("电脑探测回执尚未写回，请稍后测试")
+            check(RemoteProtocol.sha256(raw) == receipt.sha256) { "电脑探测回执摘要不匹配" }
+            val content = try { remoteJson.parseToJsonElement(raw.toString(Charsets.UTF_8)).jsonObject } catch (_: Exception) { error("探测回执格式无效") }
+            check(content["protocol_version"]?.jsonPrimitive?.intOrNull == 1) { "探测回执协议版本不匹配" }
+            // 文档尚未锁定探测摘要内部字段名；按值绑定本次随机探测，不猜测字段拼写。
+            check(content.values.any { it is JsonPrimitive && it.contentOrNull == probeHash }) { "探测回执不属于本次文件" }
             check(graph.settings.remoteIdentity() == identity) { "测试期间配置已改变，请重新测试" }
+            response.model_loaded
         } finally { withContext(NonCancellable) { runCatching { data.deleteRemoteProbe(path) } } }
     }
     suspend fun refresh(id: String) = withContext(Dispatchers.IO) { queries.computeIfAbsent(id) { Mutex() }.withLock {
+        if (graph.dao.remoteSession(id)?.complete == true) return@withLock
         var session = guard(id)
-        if (session.complete) return@withLock
         val data = dataClient(connection(session).second)
         val bytes = data.readRemote(root(id) + "/.transcripts", "index.json", RemoteProtocol.MANIFEST_LIMIT) ?: return@withLock
         val index = try { remoteJson.decodeFromString<RemoteIndex>(bytes.toString(Charsets.UTF_8)) }
@@ -237,10 +330,11 @@ class RemoteRepository(private val graph: AppGraph) {
                 check(stored.transcriptSha == result.sha256 && stored.transcriptBytes == result.bytes) { "已完成的原稿内容发生冲突" }
                 continue
             }
-            val textBytes = data.readRemote(root(id) + "/.transcripts", result.path, RemoteProtocol.TRANSCRIPT_LIMIT) ?: continue
+            val textBytes = data.readRemote(result.path.substringBeforeLast('/'), result.path.substringAfterLast('/'), RemoteProtocol.TRANSCRIPT_LIMIT) ?: continue
             check(textBytes.size.toLong() == result.bytes && RemoteProtocol.sha256(textBytes) == result.sha256) { "原稿尚未完整写入，请稍后刷新" }
             val text = try { Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(textBytes)).toString() }
                 catch (_: Exception) { error("原稿不是有效的 UTF-8 文字") }
+            check(text.endsWith('\n') && !text.endsWith("\n\n") && (text.isNotBlank() || text == "\n")) { "原稿必须统一以单个换行结尾" }
             guard(id)
             graph.database.withTransaction {
                 check(graph.dao.lesson(id) != null && graph.dao.remoteSession(id) != null) { "录音已删除" }
@@ -249,7 +343,7 @@ class RemoteRepository(private val graph: AppGraph) {
                 val chunk = graph.dao.chunks(id).single { it.id == stored.chunkId }
                 val segmentId = "${id}_remote_${result.sequence}"
                 if (graph.dao.segments(id).none { it.id == segmentId }) {
-                    graph.dao.putSegment(SegmentEntity(segmentId, id, chunk.startSample / 16, (chunk.startSample + chunk.sampleCount) / 16, chunk.path, text, "ready"))
+                    graph.dao.putSegment(SegmentEntity(segmentId, id, chunk.startSample / 16, (chunk.startSample + chunk.sampleCount) / 16, chunk.path, text.trim(), "ready"))
                     graph.dao.revise(id)
                 }
                 graph.dao.putRemoteChunk(stored.copy(transcriptSha = result.sha256, transcriptBytes = result.bytes))

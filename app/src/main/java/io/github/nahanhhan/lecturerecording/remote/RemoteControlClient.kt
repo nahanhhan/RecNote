@@ -15,9 +15,13 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resumeWithException
 
-class RemoteFailure(val code: Int, message: String) : IOException(message) {
-    val retryable get() = code == 0 || code == 408 || code == 429 || code in 500..599
-}
+class RemoteFailure(val code: Int, message: String, val errorCode: String = "invalid_response",
+    val retryable: Boolean = code == 0) : IOException(message)
+
+@Serializable data class RemoteReceiptRef(val path: String, val sha256: String)
+@Serializable data class RemoteProbe(val protocol_version: Int, val ok: Boolean, val asr_ready: Boolean,
+    val model_loaded: Boolean, val read_ok: Boolean, val write_ok: Boolean,
+    val receipt: RemoteReceiptRef? = null, val error: JsonElement? = null)
 @Serializable data class RemoteStart(val protocol_version: Int = 1, val token: String, val session_id: String,
     val cloud_path: String, val title: String, val source_type: String) {
     override fun toString() = "RemoteStart(credentials=***)"
@@ -35,9 +39,19 @@ class RemoteControlClient(address: String, client: OkHttpClient = OkHttpClient.B
         check(it["protocol_version"]?.jsonPrimitive?.intOrNull == 1) { "电脑端协议版本不兼容" }
         check(it["asr_ready"]?.jsonPrimitive?.booleanOrNull == true && it["openlist_ready"]?.jsonPrimitive?.booleanOrNull == true) { "电脑识别或 OpenList 尚未就绪" }
     }
-    suspend fun probe(token: String, path: String, sha: String) {
-        val response = request("probe", buildJsonObject { put("token", token); put("cloud_path", path); put("sha256", sha) })
-        check(response["ok"]?.jsonPrimitive?.booleanOrNull == true) { "电脑未确认同一云盘目录可读" }
+    suspend fun probe(token: String, path: String, sha: String): RemoteProbe {
+        RemoteProtocol.relativePath(path)
+        require(Regex("RecNoteRemote/_probe/[a-zA-Z0-9-]+\\.bin").matches(path)) { "探测路径无效" }
+        val response = request("probe", buildJsonObject { put("token", token); put("path", path); put("sha256", sha) })
+        val result = try { remoteJson.decodeFromJsonElement<RemoteProbe>(response) }
+            catch (_: Exception) { throw RemoteFailure(-1, "电脑探测响应字段不完整") }
+        check(result.protocol_version == 1) { "电脑端协议版本不兼容" }
+        if (!result.ok || !result.asr_ready || !result.read_ok || !result.write_ok)
+            throw RemoteFailure(200, if (!result.read_ok || !result.write_ok) "双端云盘读写未就绪" else "电脑识别服务尚未就绪", "probe_not_ready", false)
+        val receipt = requireNotNull(result.receipt) { "电脑没有返回探测回执" }
+        check(receipt.path == "$path.receipt.json") { "探测回执路径不匹配" }
+        RemoteProtocol.fingerprint(receipt.sha256)
+        return result
     }
     suspend fun start(input: RemoteStart): RemoteStarted {
         val response = request("sessions/start", remoteJson.encodeToJsonElement(input).jsonObject)
@@ -59,23 +73,41 @@ class RemoteControlClient(address: String, client: OkHttpClient = OkHttpClient.B
         if (body != null) builder.post(body.toRequestBody("application/json".toMediaType()))
         if (bearer != null) builder.header("Authorization", "Bearer $bearer")
         call(builder.build()).use { response ->
-            if (!response.isSuccessful) throw RemoteFailure(response.code, when (response.code) {
-                401, 403 -> "电脑连接凭据无效或无权限"
-                409 -> "电脑任务标识或内容冲突"
-                in 300..399 -> "电脑地址发生跳转，请填写最终地址"
-                429 -> "电脑请求过于频繁，请稍后重试"
-                in 500..599 -> "电脑服务暂时不可用"
-                else -> "电脑拒绝请求，请检查协议配置"
-            } + "（HTTP ${response.code}）")
             val source = response.body?.source() ?: throw RemoteFailure(-1, "电脑没有返回控制响应")
             val buffer = okio.Buffer()
             while (buffer.size <= RemoteProtocol.CONTROL_LIMIT) {
                 if (source.read(buffer, minOf(8192L, RemoteProtocol.CONTROL_LIMIT + 1L - buffer.size)) == -1L) break
             }
             check(buffer.size <= RemoteProtocol.CONTROL_LIMIT) { "电脑控制响应过大" }
-            try { remoteJson.parseToJsonElement(buffer.readUtf8()).jsonObject }
-            catch (_: Exception) { throw RemoteFailure(-1, "电脑控制响应格式无效") }
+            val text = buffer.readUtf8()
+            val value = try { if (text.isBlank() && response.isSuccessful && path in setOf("sessions/end", "sessions/cancel", "sessions/retry")) JsonObject(emptyMap())
+                else remoteJson.parseToJsonElement(text).jsonObject }
+                catch (_: Exception) { throw RemoteFailure(response.code, "电脑控制响应格式无效，请手动检查（HTTP ${response.code}）") }
+            if (!response.isSuccessful) throw failure(response.code, value)
+            value
         }
+    }
+    private fun failure(status: Int, body: JsonObject): RemoteFailure {
+        val error = body["error"] as? JsonObject ?: body
+        val code = (error["code"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+        val retry = (error["retryable"] as? JsonPrimitive)?.booleanOrNull ?: false
+        val reason = when (code) {
+            "session_terminal" -> "该任务已取消，请新建远程任务"
+            "session_id_conflict" -> "任务标识与目录冲突，请检查任务"
+            "audio_too_large" -> "音频块超过电脑体积上限，请检查分块或电脑限制"
+            "audio_format_invalid", "audio_decode_failed" -> "电脑无法读取此音频格式"
+            "unauthorized", "forbidden" -> "电脑连接凭据无效或无权限"
+            "asr_not_ready", "storage_not_ready" -> "电脑识别或存储尚未就绪"
+            "invalid_path", "invalid_cloud_path" -> "任务路径不符合协议"
+            "probe_missing", "probe_sha256_mismatch", "probe_too_large" -> "探测文件缺失或校验不通过"
+            "unsupported_protocol_version" -> "电脑端协议版本不兼容"
+            "audio_missing", "audio_sha256_mismatch", "manifest_invalid" -> "音频或清单完整性检查未通过"
+            "asr_failed" -> "电脑识别失败"
+            "transcript_upload_failed" -> "电脑原稿回写失败"
+            "too_many_requests", "internal_error" -> "电脑服务暂时无法处理请求"
+            else -> "电脑拒绝请求，请检查协议配置"
+        }
+        return RemoteFailure(status, "$reason（HTTP $status）", code.ifEmpty { "invalid_response" }, retry && code !in setOf("session_terminal", "audio_too_large"))
     }
     private suspend fun call(request: Request): Response = suspendCancellableCoroutine { continuation ->
         val call = http.newCall(request)

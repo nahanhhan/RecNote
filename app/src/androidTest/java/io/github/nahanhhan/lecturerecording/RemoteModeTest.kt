@@ -49,10 +49,23 @@ class RemoteModeTest {
                 val path = request.path!!
                 if (path.startsWith("/api/")) {
                     if (reject) return MockResponse().setResponseCode(403)
-                    if (temporaryFailure) return MockResponse().setResponseCode(503)
+                    if (temporaryFailure) return json("""{"code":"internal_error","message":"synthetic","retryable":true}""").setResponseCode(503)
                     if (path.endsWith("/health")) return json("{\"protocol_version\":1,\"asr_ready\":true,\"openlist_ready\":true}")
-                    if (path.endsWith("/probe")) return json("{\"ok\":true}")
                     val body = request.body.readUtf8()
+                    if (path.endsWith("/probe")) {
+                        val probe = remoteJson.parseToJsonElement(body).jsonObject
+                        val relative = probe["path"]!!.jsonPrimitive.content
+                        check(!probe.containsKey("cloud_path"))
+                        check(Regex("RecNoteRemote/_probe/[a-zA-Z0-9-]+\\.bin").matches(relative))
+                        val source = requireNotNull(files["/dav/$relative"])
+                        check(RemoteProtocol.sha256(source) == probe["sha256"]!!.jsonPrimitive.content)
+                        val raw = buildJsonObject { put("protocol_version", 1); put("synthetic_probe_digest", RemoteProtocol.sha256(source)); put("asr_ready", true); put("synthetic_time", 0) }.toString().toByteArray()
+                        files["/dav/$relative.receipt.json"] = raw
+                        return json(buildJsonObject {
+                            put("protocol_version", 1); put("ok", true); put("asr_ready", true); put("model_loaded", false); put("read_ok", true); put("write_ok", true)
+                            put("receipt", buildJsonObject { put("path", "$relative.receipt.json"); put("sha256", RemoteProtocol.sha256(raw)) }); put("error", JsonNull)
+                        }.toString())
+                    }
                     if (path.endsWith("/start")) {
                         val id = remoteJson.parseToJsonElement(body).jsonObject["session_id"]!!.jsonPrimitive.content
                         return json("{\"session_id\":\"$id\",\"session_token\":\"synthetic-$id\",\"state\":\"receiving\"}")
@@ -79,7 +92,7 @@ class RemoteModeTest {
     @After fun cleanup(): Unit = runBlocking {
         ids.forEach { RemoteUploadWorker.cancel(app, it) }
         WorkManager.getInstance(app).cancelAllWork().result.get(20, TimeUnit.SECONDS)
-        ids.forEach { graph.dao.deleteRemoteChunks(listOf(it)); graph.dao.deleteRemoteSessions(listOf(it)); graph.dao.deleteSegments(listOf(it)); graph.dao.deleteChunks(listOf(it)); graph.dao.deleteLessons(listOf(it)) }
+        ids.forEach { graph.dao.deleteRemoteCancellation(it); graph.dao.deleteRemoteChunks(listOf(it)); graph.dao.deleteRemoteSessions(listOf(it)); graph.dao.deleteSegments(listOf(it)); graph.dao.deleteChunks(listOf(it)); graph.dao.deleteLessons(listOf(it)) }
         if (::server.isInitialized) server.shutdown()
         val editor = app.getSharedPreferences("settings", Context.MODE_PRIVATE).edit().clear()
         if (::original.isInitialized) original.forEach { (key, value) -> when (value) {
@@ -105,10 +118,10 @@ class RemoteModeTest {
     private suspend fun publish(id: String, text: String = "合成原稿"): RemoteTranscript {
         val raw = files["/dav/RecNoteRemote/$id/final.json"]!!
         val final = remoteJson.decodeFromString<RemoteManifest>(raw.toString(Charsets.UTF_8))
-        val bytes = text.toByteArray(Charsets.UTF_8)
-        val result = RemoteTranscript(1, final.chunks.single().sha256, "completed", "000001.md", bytes.size.toLong(), RemoteProtocol.sha256(bytes))
+        val bytes = (text.trimEnd()+"\n").toByteArray(Charsets.UTF_8)
+        val result = RemoteTranscript(1, final.chunks.single().sha256, "completed", RemoteProtocol.transcriptPath(id, 1), bytes.size.toLong(), RemoteProtocol.sha256(bytes))
         val path = "/dav/RecNoteRemote/$id/.transcripts/"
-        files[path + result.path] = bytes
+        files["/dav/" + result.path] = bytes
         files[path + "index.json"] = remoteJson.encodeToString(RemoteIndex(id, 1, listOf(result))).toByteArray()
         files[path + "complete.json"] = remoteJson.encodeToString(RemoteComplete(id, RemoteProtocol.sha256(raw), listOf(result))).toByteArray()
         return result
@@ -185,9 +198,9 @@ class RemoteModeTest {
         assertNotNull(files["/dav/RecNoteRemote/$id/final.json"])
     }
     @Test fun connectionTestUsesSyntheticProbeWithoutCreatingSession(): Unit = runBlocking {
-        graph.remote.testConnection()
+        assertFalse(graph.remote.testConnection())
         assertTrue(notifications.none { it.first.endsWith("/start") })
-        assertTrue(files.keys.none { it.contains("probe-") })
+        assertTrue(files.keys.none { it.contains("/_probe/") })
     }
     @Test fun authenticationFailureStopsAutomaticAttemptsAndManualRetryRecovers(): Unit = runBlocking {
         val id = lesson(); chunk(id); reject = true
@@ -208,5 +221,39 @@ class RemoteModeTest {
         assertEquals("failed", graph.dao.remoteSession(id)!!.state)
         assertTrue(File(source.path).isFile)
         assertTrue(graph.dao.segments(id).isEmpty())
+    }
+    @Test fun completedDeletionKeepsCancellationUntilRecoveryAndNeverRecreatesRecording(): Unit = runBlocking {
+        val id = lesson(); chunk(id); graph.remote.stop(id); graph.remote.upload(id); publish(id); graph.remote.refresh(id)
+        assertTrue(graph.dao.remoteSession(id)!!.complete)
+        temporaryFailure = true
+        graph.recordings.delete(listOf(id))
+        assertNull(graph.dao.lesson(id))
+        assertNotNull(graph.dao.remoteCancellation(id))
+        graph.remote.sendCancellation(id)
+        assertNotNull(graph.dao.remoteCancellation(id))
+        temporaryFailure = false
+        graph.remote.retryCancellations()
+        graph.remote.sendCancellation(id)
+        assertNull(graph.dao.remoteCancellation(id))
+        assertTrue(notifications.any { it.first.endsWith("/cancel") && it.second.contains("synthetic-$id") })
+        assertNotNull(files["/dav/RecNoteRemote/$id/final.json"])
+        assertNull(graph.dao.lesson(id))
+    }
+    @Test fun legacyTaskIsRebuiltWithoutModifyingItsPublishedFinalManifest(): Unit = runBlocking {
+        val id = lesson(); val source = chunk(id)
+        graph.dao.putRemoteSession(graph.dao.remoteSession(id)!!.copy(contractRevision = 1, stopped = true,
+            state = "paused", finalJson = "preserved-legacy-final"))
+        val key = "/dav/RecNoteRemote/$id/final.json"
+        files[key] = "preserved-cloud-final".toByteArray()
+        val migrated = graph.remote.restartLegacy(id); ids += migrated
+        assertNotEquals(id, migrated)
+        assertEquals("preserved-legacy-final", graph.dao.remoteSession(id)!!.finalJson)
+        assertEquals("preserved-cloud-final", files[key]!!.toString(Charsets.UTF_8))
+        val copy = graph.dao.chunks(migrated).single()
+        assertNotEquals(source.path, copy.path)
+        assertTrue(File(source.path).exists() && File(copy.path).exists())
+        val final = remoteJson.decodeFromString<RemoteManifest>(graph.dao.remoteSession(migrated)!!.finalJson)
+        assertEquals(RemoteProtocol.audioPath(migrated, 1), final.chunks.single().path)
+        assertFalse(graph.dao.remoteSession(migrated)!!.finalJson.contains("\"bytes\""))
     }
 }

@@ -21,7 +21,14 @@ data class RemoteSessionEntity(@PrimaryKey val lessonId: String, val identity: S
     val tokenCipher: String = "", val stopped: Boolean = false, val endSent: Boolean = false,
     val finalJson: String = "", val manifestJson: String = "", val uploaded: Int = 0,
     val indexRevision: Long = -1, val state: String = "pending", val error: String = "",
-    val attempts: Int = 0, val complete: Boolean = false, val retryRequested: Boolean = false)
+    val attempts: Int = 0, val complete: Boolean = false, val retryRequested: Boolean = false,
+    @ColumnInfo(defaultValue = "1") val contractRevision: Int = 2)
+
+/** 不依赖录音行的取消发件箱；凭据始终是系统密钥加密后的密文。 */
+@Entity(tableName = "remote_cancellations")
+data class RemoteCancelEntity(@PrimaryKey val lessonId: String, val identity: String, val configVersion: String,
+    val tokenCipher: String, val title: String, val sourceType: String,
+    val state: String = "pending", val attempts: Int = 0, val error: String = "")
 
 @Entity(tableName = "remote_chunks", primaryKeys = ["lessonId", "sequence"])
 data class RemoteChunkEntity(val lessonId: String, val sequence: Int, val chunkId: String,
@@ -65,6 +72,11 @@ data class EditedNoteEntity(@PrimaryKey val lessonId: String, val markdown: Stri
 
 @Dao
 interface LectureDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun putRemoteCancellation(value: RemoteCancelEntity)
+    @Query("SELECT * FROM remote_cancellations WHERE lessonId=:id") suspend fun remoteCancellation(id: String): RemoteCancelEntity?
+    @Query("SELECT * FROM remote_cancellations") suspend fun remoteCancellations(): List<RemoteCancelEntity>
+    @Query("SELECT * FROM remote_cancellations") fun observeRemoteCancellations(): Flow<List<RemoteCancelEntity>>
+    @Query("DELETE FROM remote_cancellations WHERE lessonId=:id") suspend fun deleteRemoteCancellation(id: String)
     @Query("SELECT * FROM remote_sessions WHERE lessonId=:id") suspend fun remoteSession(id: String): RemoteSessionEntity?
     @Query("SELECT * FROM remote_sessions WHERE complete=0") suspend fun pendingRemoteSessions(): List<RemoteSessionEntity>
     @Query("SELECT * FROM remote_sessions WHERE lessonId=:id") fun observeRemoteSession(id: String): Flow<RemoteSessionEntity?>
@@ -145,10 +157,17 @@ interface LectureDao {
 
 @Database(entities = [LessonEntity::class, ChunkEntity::class, SegmentEntity::class, PhotoEntity::class,
     JobEntity::class, NoteBatchEntity::class, EditedNoteEntity::class, ScheduleSourceEntity::class,
-    RemoteSessionEntity::class, RemoteChunkEntity::class], version = 7, exportSchema = false)
+    RemoteSessionEntity::class, RemoteChunkEntity::class, RemoteCancelEntity::class], version = 8, exportSchema = false)
 abstract class LectureDatabase : RoomDatabase() {
     abstract fun dao(): LectureDao
     companion object {
+        val MIGRATION_7_8 = object : androidx.room.migration.Migration(7, 8) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE remote_sessions ADD COLUMN contractRevision INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("UPDATE remote_sessions SET state='paused',error='旧协议任务已暂停，请按新协议重建任务' WHERE complete=0")
+                db.execSQL("CREATE TABLE IF NOT EXISTS remote_cancellations (lessonId TEXT NOT NULL PRIMARY KEY, identity TEXT NOT NULL, configVersion TEXT NOT NULL, tokenCipher TEXT NOT NULL, title TEXT NOT NULL, sourceType TEXT NOT NULL, state TEXT NOT NULL, attempts INTEGER NOT NULL, error TEXT NOT NULL)")
+            }
+        }
         val MIGRATION_6_7 = object : androidx.room.migration.Migration(6, 7) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE lessons ADD COLUMN recognitionMode TEXT NOT NULL DEFAULT 'local'")

@@ -25,7 +25,6 @@ class RecordingRepository(private val graph: AppGraph) {
             if (requested.isEmpty()) return@withLock 0
             var entry: DeletionEntry? = null
             var deleted = 0
-            val remoteSessions = mutableMapOf<String, RemoteSessionEntity>()
             try {
                 graph.database.withTransaction {
                     val records = requested.chunked(500).flatMap { graph.dao.lessons(it) }
@@ -38,7 +37,7 @@ class RecordingRepository(private val graph: AppGraph) {
                     if (existing.isNotEmpty()) {
                         existing.forEach { id ->
                             graph.notes.remove(id, graph.dao.jobs(id))
-                            graph.dao.remoteSession(id)?.let { remoteSessions[id] = it }
+                            graph.remote.prepareRemoval(id)
                         }
                         entry = journal.prepare(existing)
                         existing.chunked(500).forEach { batch ->
@@ -64,7 +63,7 @@ class RecordingRepository(private val graph: AppGraph) {
                 }
             }
             requested.forEach { id ->
-                graph.remote.remove(id, remoteSessions[id])
+                graph.remote.remove(id)
                 runCatching { graph.webDav.remove(id) }.onFailure {
                     AppLog.e("RecordingRepository", "上传快照将于下次启动继续清理")
                 }

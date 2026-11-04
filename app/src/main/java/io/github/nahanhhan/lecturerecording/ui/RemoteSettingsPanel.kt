@@ -7,6 +7,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.nahanhhan.lecturerecording.AppGraph
 import io.github.nahanhhan.lecturerecording.data.RemoteSettings
 import kotlinx.coroutines.*
@@ -17,6 +18,7 @@ import kotlinx.coroutines.*
     var message by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val cancellations by graph.dao.observeRemoteCancellations().collectAsStateWithLifecycle(initialValue = emptyList())
     Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.testTag("remote-settings")) {
         Text("电脑语音识别", style = MaterialTheme.typography.titleLarge)
         OutlinedTextField(address, { address = it }, enabled = !busy, label = { Text("电脑服务地址（HTTP / HTTPS）") },
@@ -40,11 +42,11 @@ import kotlinx.coroutines.*
                 scope.launch {
                     busy = true
                     try {
-                        withContext(Dispatchers.IO) {
+                        val loaded = withContext(Dispatchers.IO) {
                             graph.settings.saveRemote(RemoteSettings(address, token)); graph.remote.configurationChanged()
                             graph.remote.testConnection()
                         }
-                        message = "连接成功，双端云盘目录已验证"
+                        message = "连接成功，双端云盘目录已验证" + if (loaded) "" else "；电脑模型尚未加载，首块识别可能较慢"
                     } catch (cancelled: CancellationException) { throw cancelled }
                     catch (error: Exception) { message = if (error is java.io.IOException || error is IllegalStateException) error.message.orEmpty() else "连接测试失败，请检查地址与配置" }
                     finally { busy = false }
@@ -52,5 +54,9 @@ import kotlinx.coroutines.*
             }) { Text(if (busy) "请稍候" else "保存并测试连接") }
         }
         if (message.isNotEmpty()) Text(message)
+        if (cancellations.isNotEmpty()) {
+            Text("还有 ${cancellations.size} 条电脑清理通知待确认；恢复原连接后可重试。", style = MaterialTheme.typography.bodySmall)
+            TextButton(enabled = !busy, onClick = { scope.launch { graph.remote.retryCancellations() } }) { Text("重试电脑清理通知") }
+        }
     }
 }

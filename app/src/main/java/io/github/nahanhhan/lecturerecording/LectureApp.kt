@@ -22,7 +22,7 @@ data class ImportState(val lessonId: String? = null, val status: String = "idle"
 class AppGraph(val app: Application) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val database = Room.databaseBuilder(app, LectureDatabase::class.java, "lectures.db")
-        .addMigrations(LectureDatabase.MIGRATION_1_2, LectureDatabase.MIGRATION_2_3, LectureDatabase.MIGRATION_3_4, LectureDatabase.MIGRATION_4_5, LectureDatabase.MIGRATION_5_6, LectureDatabase.MIGRATION_6_7).build()
+        .addMigrations(LectureDatabase.MIGRATION_1_2, LectureDatabase.MIGRATION_2_3, LectureDatabase.MIGRATION_3_4, LectureDatabase.MIGRATION_4_5, LectureDatabase.MIGRATION_5_6, LectureDatabase.MIGRATION_6_7, LectureDatabase.MIGRATION_7_8).build()
     val dao = database.dao()
     val schedules = ScheduleRepository(app, dao)
     val settings = SettingsStore(app)

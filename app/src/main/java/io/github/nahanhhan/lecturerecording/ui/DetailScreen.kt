@@ -56,6 +56,8 @@ import java.io.File
     val remoteSession by remember(id) { graph.dao.observeRemoteSession(id) }.collectAsStateWithLifecycle(initialValue = null)
     var remoteRefreshing by remember(id) { mutableStateOf(false) }
     var remoteRefresh by remember(id) { mutableStateOf(0) }
+    var confirmRemoteMigration by remember(id) { mutableStateOf(false) }
+    var migratingRemote by remember(id) { mutableStateOf(false) }
     val editedNote by remember(id) { graph.dao.observeEditedNote(id) }.collectAsStateWithLifecycle(initialValue = null)
     val recording by graph.recording.collectAsStateWithLifecycle()
     val importing by graph.importing.collectAsStateWithLifecycle()
@@ -152,8 +154,9 @@ import java.io.File
                 }, style = MaterialTheme.typography.bodySmall)
                 if (!state?.error.isNullOrBlank()) Text(state!!.error, color = MaterialTheme.colorScheme.error)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (state?.contractRevision == 1 && state.complete != true && !active && !importActive) TextButton(enabled = !migratingRemote, onClick = { confirmRemoteMigration = true }) { Text("按新协议重建任务") }
                     TextButton(enabled = !remoteRefreshing, onClick = { remoteRefresh++ }) { Text(if (remoteRefreshing) "检查中" else "刷新原稿") }
-                    if (state?.complete != true && state?.state != "cancelled") TextButton(enabled = !remoteRefreshing, onClick = {
+                    if (state?.contractRevision == 2 && state.complete != true && state.state != "cancelled") TextButton(enabled = !remoteRefreshing, onClick = {
                         scope.launch { try { graph.remote.retry(id); error = "已排队重试" } catch (exception: Exception) { error = exception.message ?: "重试失败" } }
                     }) { Text("重试远程任务") }
                     if (state?.tokenCipher?.isNotEmpty() == true && state.state != "cancelled" && state.complete != true) TextButton(enabled = !remoteRefreshing, onClick = {
@@ -162,7 +165,7 @@ import java.io.File
                     if (state?.stopped == true && state.complete != true && state.state != "cancelled" && !active && !importActive) TextButton(onClick = {
                         scope.launch { try { graph.remote.cancel(id) } catch (_: Exception) { error = "停止通知未确认，本地状态已保留" } }
                     }) { Text("停止远程任务") }
-                    if (!active && !importActive && current.status == "interrupted" && state?.stopped != true) TextButton(onClick = {
+                    if (!active && !importActive && current.status == "interrupted" && state?.stopped != true && state?.contractRevision == 2) TextButton(onClick = {
                         scope.launch { try { graph.remote.stop(id); error = "" } catch (exception: Exception) { error = exception.message ?: "结束失败" } }
                     }) { Text("结束此次录音") }
                 }
@@ -186,7 +189,7 @@ import java.io.File
                 }
             } else {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (current.status == "interrupted" && !imported) OutlinedButton(enabled = recording.lessonId == null && importing.lessonId == null, onClick = {
+                    if (current.status == "interrupted" && !imported && (current.recognitionMode == "local" || remoteSession?.contractRevision == 2)) OutlinedButton(enabled = recording.lessonId == null && importing.lessonId == null, onClick = {
                         activity.beginRecording(Intent(activity, RecordingService::class.java).setAction(RecordingService.START).putExtra("lesson_id", id))
                     }) { Text("继续录音") }
                     if (current.recognitionMode == "local" && !imported && segments.any { it.status != "ready" }) OutlinedButton(enabled = recording.lessonId == null && importing.lessonId == null && !cloudRunning, onClick = {
@@ -318,6 +321,19 @@ import java.io.File
     }
     if (confirmDelete) DeleteRecordingsDialog(graph, listOf(id), onDismiss = { confirmDelete = false },
         beforeDelete = { player.stop(); playing = false }, onDeleted = { confirmDelete = false; onDeleted() })
+    if (confirmRemoteMigration) AlertDialog(onDismissRequest = { if (!migratingRemote) confirmRemoteMigration = false },
+        title = { Text("按新协议重建远程任务？") },
+        text = { Text("将复制已保存的音频和照片，使用当前电脑及云盘配置创建一份新记录。旧录音、原稿和笔记保留，旧云盘最终清单不改写。") },
+        confirmButton = { TextButton(enabled = !migratingRemote, onClick = {
+            migratingRemote = true
+            scope.launch {
+                try { graph.remote.restartLegacy(id); confirmRemoteMigration = false; error = "新任务已创建，请返回列表打开重新转写的记录" }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { error = "重建未完成，原资料已保留，请检查存储空间和连接配置" }
+                finally { migratingRemote = false }
+            }
+        }) { Text(if (migratingRemote) "正在复制" else "创建新任务") } },
+        dismissButton = { TextButton(enabled = !migratingRemote, onClick = { confirmRemoteMigration = false }) { Text("取消") } })
     editSegment?.let { segment ->
         var text by remember(segment.id) { mutableStateOf(segment.text) }
         AlertDialog(onDismissRequest = { editSegment = null }, title = { Text("编辑转写") }, text = {

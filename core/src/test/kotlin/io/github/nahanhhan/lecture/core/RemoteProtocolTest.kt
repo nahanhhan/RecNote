@@ -1,15 +1,23 @@
 package io.github.nahanhhan.lecture.core
 
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.*
 import kotlin.test.*
 import org.junit.Test
 
 class RemoteProtocolTest {
+    @Test fun audioWireKeysAreExactlyTheSyncContract() {
+        val value = audio().single()
+        val json = remoteJson.encodeToJsonElement(value).jsonObject
+        assertEquals(setOf("sequence", "path", "start_sample", "sample_count", "sha256"), json.keys)
+        assertEquals("RecNoteRemote/session/audio/000001.wav", json["path"]!!.jsonPrimitive.content)
+        RemoteProtocol.manifest(RemoteManifest("session", 1, listOf(value)))
+    }
     private val hash = RemoteProtocol.sha256("audio".toByteArray())
-    private fun audio(n: Int = 1) = (1..n).map { RemoteAudioChunk(it, "audio/${RemoteProtocol.name(it)}.wav", (it - 1) * 16000L, 16000, 32044, hash) }
-    private fun result(n: Int = 1, text: String = "原稿") = (1..n).map { RemoteTranscript(it, hash, "completed", "${RemoteProtocol.name(it)}.md", text.toByteArray().size.toLong(), RemoteProtocol.sha256(text.toByteArray())) }
+    private fun audio(n: Int = 1) = (1..n).map { RemoteAudioChunk(it, RemoteProtocol.audioPath("session", it), (it - 1) * 16000L, 16000, hash) }
+    private fun result(n: Int = 1, text: String = "原稿\n") = (1..n).map { RemoteTranscript(it, hash, "completed", RemoteProtocol.transcriptPath("session", it), text.toByteArray().size.toLong(), RemoteProtocol.sha256(text.toByteArray())) }
     @Test fun pauseAndShortTailUseContinuousAudioTime() {
-        val chunks = audio() + RemoteAudioChunk(2, "audio/000002.wav", 16000, 640, 1324, hash)
+        val chunks = audio() + RemoteAudioChunk(2, RemoteProtocol.audioPath("session", 2), 16000, 640, hash)
         RemoteProtocol.manifest(RemoteManifest("session", 2, chunks, total_samples = 16640, chunk_count = 2))
         assertFailsWith<IllegalArgumentException> { RemoteProtocol.manifest(RemoteManifest("session", 2, chunks.map { it.copy(start_sample = 0) })) }
         assertFailsWith<IllegalArgumentException> { RemoteProtocol.manifest(RemoteManifest("session", 2, chunks, total_samples = 16000)) }
@@ -38,7 +46,7 @@ class RemoteProtocolTest {
         assertFailsWith<IllegalArgumentException> { RemoteProtocol.complete(complete.copy(chunks = results.take(1)), bytes, final, results.associate { it.sequence to it.sha256 }) }
     }
     @Test fun silentAndZeroBlockSessionsHaveExplicitVerifiableCompletion() {
-        val silent = result(text = "")
+        val silent = result(text = "\n")
         RemoteProtocol.index(RemoteIndex("session", 1, silent), "session", 0, audio())
         val final = RemoteManifest("session", 0, emptyList(), total_samples = 0, chunk_count = 0)
         val bytes = remoteJson.encodeToString(final).toByteArray()
@@ -46,7 +54,7 @@ class RemoteProtocolTest {
     }
     @Test fun protocolAndAudioFormatMustAgree() {
         val final = RemoteManifest("session", 1, audio())
-        for (bad in listOf(final.copy(protocol_version = 2), final.copy(sample_rate = 48000), final.copy(channels = 2), final.copy(chunks = audio().map { it.copy(bytes = 0) }))) {
+        for (bad in listOf(final.copy(protocol_version = 2), final.copy(sample_rate = 48000), final.copy(channels = 2), final.copy(chunks = audio().map { it.copy(sample_count = 0) }))) {
             assertFailsWith<IllegalArgumentException> { RemoteProtocol.manifest(bad) }
         }
     }

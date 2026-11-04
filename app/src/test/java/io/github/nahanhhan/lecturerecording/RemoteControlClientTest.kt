@@ -9,6 +9,36 @@ import org.junit.Test
 import java.util.concurrent.TimeUnit
 
 class RemoteControlClientTest {
+    @Test fun retryFlagOverridesHttpStatusAndTerminalIsActionable(): Unit = runBlocking {
+        MockWebServer().use { server ->
+            val client = RemoteControlClient(server.url("/").toString())
+            for ((http, retry) in listOf(503 to false, 400 to true)) {
+                server.enqueue(MockResponse().setResponseCode(http).setBody("""{"code":"internal_error","message":"private-secret","retryable":$retry}"""))
+                try { client.action("retry", "fake"); fail() }
+                catch (error: RemoteFailure) { assertEquals(retry, error.retryable); assertFalse(error.message!!.contains("private-secret")) }
+            }
+            server.enqueue(MockResponse().setResponseCode(409).setBody("""{"code":"session_terminal","message":"private","retryable":false}"""))
+            try { client.action("retry", "fake"); fail() }
+            catch (error: RemoteFailure) { assertEquals("session_terminal", error.errorCode); assertFalse(error.retryable); assertTrue(error.message!!.contains("新建")) }
+        }
+    }
+    @Test fun probeUsesPathAndReportsColdModelWithoutFailure(): Unit = runBlocking {
+        MockWebServer().use { server ->
+            val path = "RecNoteRemote/_probe/synthetic.bin"
+            server.enqueue(MockResponse().setBody("""{"protocol_version":1,"ok":true,"asr_ready":true,"model_loaded":false,"read_ok":true,"write_ok":true,"receipt":{"path":"$path.receipt.json","sha256":"${"a".repeat(64)}"},"error":null,"optional_future":1}"""))
+            val result = RemoteControlClient(server.url("/").toString()).probe("fake", path, "b".repeat(64))
+            assertFalse(result.model_loaded)
+            val body = server.takeRequest(2, TimeUnit.SECONDS)!!.body.readUtf8()
+            assertTrue(body.contains("\"path\"")); assertFalse(body.contains("cloud_path"))
+        }
+    }
+    @Test fun probeNotReadyIsNotRetryable(): Unit = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setBody("""{"protocol_version":1,"ok":false,"asr_ready":true,"model_loaded":false,"read_ok":true,"write_ok":false,"receipt":null,"error":{"code":"storage_not_ready","retryable":true}}"""))
+            try { RemoteControlClient(server.url("/").toString()).probe("fake", "RecNoteRemote/_probe/test.bin", "a".repeat(64)); fail() }
+            catch (error: RemoteFailure) { assertFalse(error.retryable); assertEquals(200, error.code) }
+        }
+    }
     @Test fun endUsesOnlyTaskTokenAndPreservesBasePrefix(): Unit = runBlocking {
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setBody("{}"))

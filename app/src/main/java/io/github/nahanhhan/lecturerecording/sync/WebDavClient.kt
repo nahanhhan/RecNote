@@ -71,9 +71,9 @@ class WebDavClient(address: String, private val username: String = "", private v
     }
 
     /** 远程音频通道有独立目录和显式 MIME；不复用笔记文件打包。 */
-    suspend fun putRemote(directory: String, filename: String, bytes: ByteArray) {
+    suspend fun putRemote(directory: String, filename: String, bytes: ByteArray, contentType: String = "application/json; charset=utf-8") {
         require(bytes.size <= io.github.nahanhhan.lecture.core.RemoteProtocol.MANIFEST_LIMIT)
-        request(url(directory, filename), "PUT", bytes.toRequestBody("application/json; charset=utf-8".toMediaType())).use {
+        request(url(directory, filename), "PUT", bytes.toRequestBody(contentType.toMediaType())).use {
             if (it.code !in setOf(200, 201, 204)) throw failure(it.code)
         }
     }
@@ -97,10 +97,11 @@ class WebDavClient(address: String, private val username: String = "", private v
             buffer.readByteArray()
         }
     }
-    suspend fun deleteRemoteProbe(directory: String) {
-        require(directory.matches(Regex("RecNoteRemote/probe-[a-zA-Z0-9-]+")))
-        request(url(directory, "probe.json"), "DELETE").use { if (it.code !in setOf(200, 202, 204, 404)) throw failure(it.code) }
-        request(url(directory), "DELETE").use { if (it.code !in setOf(200, 202, 204, 404)) throw failure(it.code) }
+    suspend fun deleteRemoteProbe(path: String) {
+        require(path.matches(Regex("RecNoteRemote/_probe/[a-zA-Z0-9-]+\\.bin")))
+        for (name in listOf(path.substringAfterLast('/'), path.substringAfterLast('/') + ".receipt.json")) {
+            request(url("RecNoteRemote/_probe", name), "DELETE").use { if (it.code !in setOf(200, 202, 204, 404)) throw failure(it.code) }
+        }
     }
 
     private suspend fun requireCollection(target: HttpUrl) {
