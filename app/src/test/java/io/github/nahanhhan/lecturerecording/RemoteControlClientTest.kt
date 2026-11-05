@@ -9,6 +9,20 @@ import org.junit.Test
 import java.util.concurrent.TimeUnit
 
 class RemoteControlClientTest {
+    @Test fun proxyErrorPagesExplainTheServiceBoundaryWithoutEchoingBody(): Unit = runBlocking {
+        MockWebServer().use { server ->
+            val client = RemoteControlClient(server.url("/").toString())
+            for (code in listOf(502, 503, 504)) {
+                server.enqueue(MockResponse().setResponseCode(code).setBody("<html>synthetic-private-proxy-detail</html>"))
+                try { client.health("synthetic-token"); fail("Proxy error accepted") }
+                catch (error: RemoteFailure) {
+                    assertEquals(code, error.code); assertFalse(error.retryable)
+                    assertTrue(error.message!!.contains("网关")); assertTrue(error.message!!.contains("启动"))
+                    assertFalse(error.message!!.contains("synthetic-private-proxy-detail"))
+                }
+            }
+        }
+    }
     @Test fun retryFlagOverridesHttpStatusAndTerminalIsActionable(): Unit = runBlocking {
         MockWebServer().use { server ->
             val client = RemoteControlClient(server.url("/").toString())

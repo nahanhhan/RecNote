@@ -247,6 +247,17 @@ class RemoteModeTest {
             }
         }
     }
+    @Test fun webDavScreenShowsConnectionRefusedAndTheFailedStage() {
+        val port = java.net.ServerSocket(0).use { it.localPort }
+        graph.settings.saveWebDav(graph.settings.webDav().copy(baseUrl = "http://127.0.0.1:$port/dav/"))
+        ActivityScenario.launch(MainActivity::class.java).use {
+            compose.onNodeWithContentDescription("设置").performClick()
+            compose.onNodeWithTag("test-webdav").performScrollTo().performClick()
+            compose.waitUntil(15000) {
+                compose.onAllNodesWithText("检查目录：连接被拒绝", substring = true).fetchSemanticsNodes().isNotEmpty()
+            }
+        }
+    }
     @Test fun authenticationFailureStopsAutomaticAttemptsAndManualRetryRecovers(): Unit = runBlocking {
         val id = lesson(); chunk(id); reject = true
         assertTrue(graph.remote.upload(id))

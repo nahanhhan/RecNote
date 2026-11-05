@@ -82,7 +82,11 @@ class RemoteControlClient(address: String, client: OkHttpClient = OkHttpClient.B
             val text = buffer.readUtf8()
             val value = try { if (text.isBlank() && response.isSuccessful && path in setOf("sessions/end", "sessions/cancel", "sessions/retry")) JsonObject(emptyMap())
                 else remoteJson.parseToJsonElement(text).jsonObject }
-                catch (_: Exception) { throw RemoteFailure(response.code, "电脑控制响应格式无效，请手动检查（HTTP ${response.code}）") }
+                catch (_: Exception) {
+                    val reason = if (response.code in setOf(502, 503, 504)) "电脑网关未返回有效识别响应，请检查电脑识别服务是否启动，以及域名转发的地址和端口"
+                        else "电脑控制响应格式无效，请手动检查"
+                    throw RemoteFailure(response.code, "$reason（HTTP ${response.code}）")
+                }
             if (!response.isSuccessful) throw failure(response.code, value)
             value
         }

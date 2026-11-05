@@ -1,15 +1,66 @@
 package io.github.nahanhhan.lecturerecording.sync
 
 import kotlinx.coroutines.runBlocking
+import io.github.nahanhhan.lecture.core.LogLevel
+import io.github.nahanhhan.lecturerecording.logging.AppLog
 import okhttp3.Credentials
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.*
 import org.junit.Test
 import java.nio.file.Files
+import java.io.IOException
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
+import javax.net.ssl.SSLHandshakeException
+import javax.net.ssl.SSLPeerUnverifiedException
 import java.util.concurrent.TimeUnit
 
 class WebDavClientTest {
+    @Test fun networkErrorsAreActionableAndNeverRetainOriginalDetails() {
+        val privateDetail = "synthetic-private-host synthetic-user synthetic-password synthetic-path"
+        val cases = listOf(
+            ConnectException(privateDetail) to WebDavNetworkIssue.REFUSED,
+            SocketTimeoutException(privateDetail) to WebDavNetworkIssue.TIMEOUT,
+            UnknownHostException(privateDetail) to WebDavNetworkIssue.DNS,
+            SSLHandshakeException(privateDetail) to WebDavNetworkIssue.TLS,
+            SSLPeerUnverifiedException(privateDetail) to WebDavNetworkIssue.CERTIFICATE,
+            IOException("socket failed: EACCES $privateDetail") to WebDavNetworkIssue.PERMISSION)
+        for ((cause, kind) in cases) {
+            val error = WebDavClient.connectionFailure(cause)
+            assertEquals(kind, error.networkIssue)
+            assertFalse(error.toString().contains("synthetic-")); assertNull(error.cause)
+            assertEquals(kind in setOf(WebDavNetworkIssue.REFUSED, WebDavNetworkIssue.TIMEOUT, WebDavNetworkIssue.DNS), error.retryable)
+        }
+    }
+    @Test fun refusedLocalServerReportsTheDirectoryStepAndKeepsNetworkRetry() = runBlocking {
+        val server = MockWebServer(); server.start()
+        val address = server.url("/dav/synthetic-private-folder/").toString()
+        server.shutdown()
+        val error = failure { WebDavClient(address).testConnection() }
+        assertEquals(WebDavNetworkIssue.REFUSED, error.networkIssue)
+        assertTrue(error.message!!.startsWith("检查目录：")); assertTrue(error.message!!.contains("连接被拒绝"))
+        assertTrue(error.retryable); assertFalse(error.message!!.contains("synthetic-private-folder"))
+    }
+    @Test fun readTimeoutIsVisibleAndRemainsRetryable() = withServer { server -> runBlocking {
+        server.enqueue(collection().setHeadersDelay(400, TimeUnit.MILLISECONDS))
+        val http = okhttp3.OkHttpClient.Builder().readTimeout(50, TimeUnit.MILLISECONDS).retryOnConnectionFailure(false).build()
+        val error = failure { WebDavClient(server.url("/dav/").toString(), client = http).testConnection() }
+        assertEquals(WebDavNetworkIssue.TIMEOUT, error.networkIssue); assertTrue(error.retryable)
+    } }
+    @Test fun exportedDiagnosticsIdentifyTheFailedStepWithoutEndpointOrSecrets() = withServer { server -> runBlocking {
+        val directory = Files.createTempDirectory("synthetic-dav-diagnostics").toFile()
+        AppLog.init(directory, "test"); AppLog.setLevel(LogLevel.DEBUG)
+        try {
+            server.enqueue(MockResponse().setResponseCode(401).setBody("synthetic-private-response"))
+            val error = failure { WebDavClient(server.url("/dav/synthetic-private-folder/").toString(), "synthetic-user", "synthetic-password").testConnection() }
+            assertEquals(401, error.code); AppLog.flush()
+            val text = java.io.File(directory, "log/test.log").readText()
+            assertTrue(text.contains("WebDavTest")); assertTrue(text.contains("step=检查目录")); assertTrue(text.contains("status=401"))
+            for (hidden in listOf("synthetic-private-response", "synthetic-private-folder", "synthetic-user", "synthetic-password", "127.0.0.1", "Authorization")) assertFalse(text.contains(hidden))
+        } finally { AppLog.setLevel(LogLevel.NONE); AppLog.flush(); directory.deleteRecursively() }
+    } }
     private fun collection(path: String = "/dav/", code: Int = 200, isDirectory: Boolean = true) = MockResponse().setResponseCode(207).setBody(
         """<d:multistatus xmlns:d="DAV:"><d:response><d:href>$path</d:href><d:propstat><d:prop><d:resourcetype>${if (isDirectory) "<d:collection/>" else ""}</d:resourcetype></d:prop><d:status>HTTP/1.1 $code Status</d:status></d:propstat></d:response></d:multistatus>""")
 

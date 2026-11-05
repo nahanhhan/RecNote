@@ -1,6 +1,8 @@
 package io.github.nahanhhan.lecturerecording.sync
 
 import io.github.nahanhhan.lecture.core.WebDavPaths
+import io.github.nahanhhan.lecturerecording.logging.AppLog
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.*
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -11,15 +13,27 @@ import org.w3c.dom.Element
 import org.xml.sax.InputSource
 import java.io.File
 import java.io.IOException
+import java.io.InterruptedIOException
+import java.net.ConnectException
+import java.net.NoRouteToHostException
+import java.net.UnknownHostException
+import java.security.cert.CertificateException
+import java.security.cert.CertPathValidatorException
 import java.io.StringReader
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import javax.xml.parsers.DocumentBuilderFactory
+import javax.net.ssl.SSLException
+import javax.net.ssl.SSLPeerUnverifiedException
 import kotlin.coroutines.resumeWithException
 
 /** 不含服务端正文/地址的错误，可安全展示或记入任意日志档位。 */
-class WebDavFailure(val code: Int, message: String) : IOException(message) {
-    val retryable: Boolean get() = code == 408 || code == 429 || code in 500..599
+enum class WebDavNetworkIssue { PERMISSION, HTTP_POLICY, CERTIFICATE, TLS, DNS, TIMEOUT, REFUSED, NO_ROUTE, IO }
+
+class WebDavFailure(val code: Int, message: String, val networkIssue: WebDavNetworkIssue? = null) : IOException(message) {
+    val retryable: Boolean get() = if (networkIssue != null) networkIssue in setOf(
+        WebDavNetworkIssue.DNS, WebDavNetworkIssue.TIMEOUT, WebDavNetworkIssue.REFUSED, WebDavNetworkIssue.NO_ROUTE, WebDavNetworkIssue.IO)
+        else code == 408 || code == 429 || code in 500..599
 }
 
 class WebDavClient(address: String, private val username: String = "", private val password: String = "",
@@ -30,12 +44,31 @@ class WebDavClient(address: String, private val username: String = "", private v
 
     /** 根目录验证 + 随机空文件读写测试；只删除本次创建的测试文件。 */
     suspend fun testConnection() {
-        requireCollection(root)
-        val probe = root.newBuilder().addPathSegment("recnote-connection-test-${UUID.randomUUID()}.txt").build()
-        request(probe, "PUT", ByteArray(0).toRequestBody("text/plain".toMediaType()), mapOf("If-None-Match" to "*")).use {
-            if (it.code !in setOf(200, 201, 204)) throw failure(it.code)
+        var step = "检查目录"
+        val location = if (root.host == "localhost" || root.host == "::1" || root.host.startsWith("127.")) "本机" else "其他设备"
+        AppLog.i("WebDavTest", "开始测试 protocol=${root.scheme} port=${root.port} target=$location")
+        try {
+            requireCollection(root)
+            val probe = root.newBuilder().addPathSegment("recnote-connection-test-${UUID.randomUUID()}.txt").build()
+            step = "写入测试文件"
+            request(probe, "PUT", ByteArray(0).toRequestBody("text/plain".toMediaType()), mapOf("If-None-Match" to "*")).use {
+                if (it.code !in setOf(200, 201, 204)) throw failure(it.code)
+            }
+            step = "清理测试文件"
+            request(probe, "DELETE").use { if (it.code !in setOf(200, 202, 204)) throw failure(it.code) }
+            AppLog.i("WebDavTest", "测试成功：目录、写入和清理均通过")
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (error: Exception) {
+            val safe = when (error) {
+                is WebDavFailure -> error
+                is IOException -> connectionFailure(error)
+                is SecurityException -> WebDavFailure(0, "系统拒绝网络访问，请检查 RecNote 的联网权限或防火墙限制", WebDavNetworkIssue.PERMISSION)
+                else -> null
+            }
+            AppLog.e("WebDavTest", "测试失败 step=$step category=${safe?.networkIssue?.name ?: "HTTP_OR_DIRECTORY"} status=${safe?.code ?: 0}")
+            if (safe != null) throw WebDavFailure(safe.code, "$step：${safe.message}", safe.networkIssue)
+            throw error
         }
-        request(probe, "DELETE").use { if (it.code !in setOf(200, 202, 204)) throw failure(it.code) }
     }
 
     /** 每个路径段分别编码；前导 / 始终相对配置根目录，不能改变根地址。 */
@@ -175,7 +208,7 @@ class WebDavClient(address: String, private val username: String = "", private v
             continuation.invokeOnCancellation { call.cancel() }
             call.enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
-                    if (continuation.isActive) continuation.resumeWithException(IOException("无法连接网盘，请检查网络、地址和 HTTPS 证书"))
+                    if (continuation.isActive) continuation.resumeWithException(connectionFailure(e))
                 }
                 override fun onResponse(call: Call, response: Response) {
                     continuation.resume(response) { _, unused, _ -> unused.close() }
@@ -185,6 +218,33 @@ class WebDavClient(address: String, private val username: String = "", private v
     }
 
     companion object {
+        /** 只返回固定分类与操作提示，不保留原始异常消息、地址或凭据。 */
+        internal fun connectionFailure(error: IOException): WebDavFailure {
+            val causes = generateSequence<Throwable>(error) { it.cause }.take(6).toList()
+            val issue = when {
+                causes.any { it is SecurityException || it.message.orEmpty().contains("EACCES") || it.message.orEmpty().contains("EPERM") } -> WebDavNetworkIssue.PERMISSION
+                causes.any { it.message.orEmpty().contains("CLEARTEXT", ignoreCase = true) } -> WebDavNetworkIssue.HTTP_POLICY
+                causes.any { it is SSLPeerUnverifiedException || it is CertificateException || it is CertPathValidatorException } -> WebDavNetworkIssue.CERTIFICATE
+                causes.any { it is SSLException } -> WebDavNetworkIssue.TLS
+                causes.any { it is UnknownHostException } -> WebDavNetworkIssue.DNS
+                causes.any { it is InterruptedIOException } -> WebDavNetworkIssue.TIMEOUT
+                causes.any { it is NoRouteToHostException } -> WebDavNetworkIssue.NO_ROUTE
+                causes.any { it is ConnectException } -> WebDavNetworkIssue.REFUSED
+                else -> WebDavNetworkIssue.IO
+            }
+            val message = when (issue) {
+                WebDavNetworkIssue.PERMISSION -> "系统拒绝网络访问，请检查 RecNote 的联网权限或防火墙限制"
+                WebDavNetworkIssue.HTTP_POLICY -> "系统阻止了 HTTP 连接，请检查当前网络策略"
+                WebDavNetworkIssue.CERTIFICATE -> "HTTPS 证书校验失败，请检查证书信任及域名是否匹配"
+                WebDavNetworkIssue.TLS -> "HTTPS 握手失败，请核对 OpenList 是否启用了 HTTPS，以及地址中的 http/https"
+                WebDavNetworkIssue.DNS -> "域名解析失败，请检查域名、DNS 和网络"
+                WebDavNetworkIssue.TIMEOUT -> "连接或读写超时，请检查 OpenList 是否响应及网络是否稳定"
+                WebDavNetworkIssue.NO_ROUTE -> "网络不可达，请检查设备连接、地址和网络限制"
+                WebDavNetworkIssue.REFUSED -> "连接被拒绝，请检查 OpenList 是否运行，以及地址和端口是否正确"
+                WebDavNetworkIssue.IO -> "网络连接中断，请检查 OpenList 运行状态和网络后重试"
+            }
+            return WebDavFailure(0, message, issue)
+        }
         fun normalize(address: String): String {
             val url = address.trim().toHttpUrlOrNull()
             require(url != null && url.username.isEmpty() && url.password.isEmpty() && url.query == null && url.fragment == null) {
