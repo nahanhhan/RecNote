@@ -85,3 +85,9 @@
 新增网络拒绝、读取超时、错误分类、诊断日志脱敏及网关错误页面单元测试，并新增隔离界面测试确认“检查目录：连接被拒绝”实际可见。统一检查 8 项及 OpenSpec 严格校验通过；[诊断版 CI](https://github.com/nahanhhan/RecNote/actions/runs/41953041799) 已全部通过，含编译、单测、lint、APK 构建及实际执行 31 个隔离模拟器用例。8.1 的客户端诊断修复验收完成。真实手机连接原因仍需结合实际服务端口、外部浏览器及新诊断结果确认，没有修改手机 OpenList 或电脑识别服务。
 
 诊断 APK 为 `.build-cache/apk/recnote-webdav-diagnostics-e4c369c.apk`，94,946,459 字节，SHA-256 `2745f530f95656132762a3c2f3936f86f395d256ae17c08cce9ca8d52c96e57b`。GitHub 产物 `13382546359` 的 ZIP SHA-256 已与元数据核对一致：`caf83a1e24fdbb6b4b2f90cedf52a5cd94e30e45380690cf0f305e620252ba5c`。apksig 实际验证 v2 签名通过，签名证书与上文仓库证书一致；附本地 JSON 校验记录。
+
+## 远程日志验证（2026-11-07）
+
+提交 `927a998` 将连接探测、音频和清单上传、电脑任务状态与原稿回收写入 `RemoteTrace`。隔离测试实际执行电脑读取失败、电脑确认写入后手机读取 404，以及一轮音频上传与原稿回收，验证日志编号关联与凭据、地址、路径和正文脱敏。[CI](https://github.com/nahanhhan/RecNote/actions/runs/42340357434) 的工程检查和 32 个模拟器用例通过。
+
+同签名 APK 为 `.build-cache/apk/recnote-remote-trace-927a998.apk`，产物 ID `13561865460`，APK SHA-256 为 `aa15862dce2b2c0a1f6e98f8b24b9b7f385eb904ba3a23c56168b8512e196e90`。下载 ZIP 与 GitHub 摘要一致，APK v2 签名证书与仓库一致。真实手机上两端目录与缓存造成的文件可见性仍需依据复测日志确认。
