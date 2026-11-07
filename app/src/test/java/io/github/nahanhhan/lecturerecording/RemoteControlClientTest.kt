@@ -46,11 +46,23 @@ class RemoteControlClientTest {
             assertTrue(body.contains("\"path\"")); assertFalse(body.contains("cloud_path"))
         }
     }
-    @Test fun probeNotReadyIsNotRetryable(): Unit = runBlocking {
+    @Test fun probeDistinguishesMissingFileFromFailedReceiptWithoutExposingServerDetails(): Unit = runBlocking {
         MockWebServer().use { server ->
-            server.enqueue(MockResponse().setBody("""{"protocol_version":1,"ok":false,"asr_ready":true,"model_loaded":false,"read_ok":true,"write_ok":false,"receipt":null,"error":{"code":"storage_not_ready","retryable":true}}"""))
-            try { RemoteControlClient(server.url("/").toString()).probe("fake", "RecNoteRemote/_probe/test.bin", "a".repeat(64)); fail() }
-            catch (error: RemoteFailure) { assertFalse(error.retryable); assertEquals(200, error.code) }
+            val client = RemoteControlClient(server.url("/").toString())
+            for ((code, readOk) in listOf("probe_missing" to false, "storage_not_ready" to true)) {
+                server.enqueue(MockResponse().setBody("""{"protocol_version":1,"ok":false,"asr_ready":true,"model_loaded":false,"read_ok":$readOk,"write_ok":false,"receipt":null,"error":{"code":"$code","message":"synthetic-private-path","retryable":true}}"""))
+                try {
+                    client.probe("fake", "RecNoteRemote/_probe/test.bin", "a".repeat(64))
+                    fail("Unsuccessful probe accepted")
+                } catch (error: RemoteFailure) {
+                    assertFalse(error.retryable)
+                    assertEquals(200, error.code)
+                    assertEquals(code, error.errorCode)
+                    assertTrue(error.message!!.contains(if (readOk) "写入或读回回执失败" else "同一个云盘文件夹"))
+                    assertFalse(error.message!!.contains("synthetic-private-path"))
+                }
+            }
+            assertEquals(2, server.requestCount)
         }
     }
     @Test fun endUsesOnlyTaskTokenAndPreservesBasePrefix(): Unit = runBlocking {

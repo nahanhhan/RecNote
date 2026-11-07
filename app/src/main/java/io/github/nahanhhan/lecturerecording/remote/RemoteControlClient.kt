@@ -37,7 +37,10 @@ class RemoteControlClient(address: String, client: OkHttpClient = OkHttpClient.B
     private val http = client.newBuilder().followRedirects(false).followSslRedirects(false).build()
     suspend fun health(token: String): JsonObject = request("health", bearer = token).also {
         check(it["protocol_version"]?.jsonPrimitive?.intOrNull == 1) { "电脑端协议版本不兼容" }
-        check(it["asr_ready"]?.jsonPrimitive?.booleanOrNull == true && it["storage_ready"]?.jsonPrimitive?.booleanOrNull == true) { "电脑识别或 OpenList 尚未就绪" }
+        check(it["asr_ready"]?.jsonPrimitive?.booleanOrNull == true) { "电脑识别服务尚未就绪" }
+        check(it["storage_ready"]?.jsonPrimitive?.booleanOrNull == true) {
+            "电脑 OpenList 尚未就绪，请检查电脑端的 WebDAV 地址、账号和目标文件夹权限"
+        }
     }
     suspend fun probe(token: String, path: String, sha: String): RemoteProbe {
         RemoteProtocol.relativePath(path)
@@ -46,12 +49,32 @@ class RemoteControlClient(address: String, client: OkHttpClient = OkHttpClient.B
         val result = try { remoteJson.decodeFromJsonElement<RemoteProbe>(response) }
             catch (_: Exception) { throw RemoteFailure(-1, "电脑探测响应字段不完整") }
         check(result.protocol_version == 1) { "电脑端协议版本不兼容" }
-        if (!result.ok || !result.asr_ready || !result.read_ok || !result.write_ok)
-            throw RemoteFailure(200, if (!result.read_ok || !result.write_ok) "双端云盘读写未就绪" else "电脑识别服务尚未就绪", "probe_not_ready", false)
+        if (!result.ok || !result.asr_ready || !result.read_ok || !result.write_ok) {
+            throw probeFailure(result)
+        }
         val receipt = requireNotNull(result.receipt) { "电脑没有返回探测回执" }
         check(receipt.path == "$path.receipt.json") { "探测回执路径不匹配" }
         RemoteProtocol.fingerprint(receipt.sha256)
         return result
+    }
+    private fun probeFailure(result: RemoteProbe): RemoteFailure {
+        val error = result.error as? JsonObject
+        val reportedCode = (error?.get("code") as? JsonPrimitive)?.contentOrNull
+        val reason = when (reportedCode) {
+            "probe_missing" -> "电脑找不到或读不到手机写入的探测文件。请核对电脑的 OPENLIST_WEBDAV_URL 和手机的 WebDAV 地址是否指向同一个云盘文件夹，并检查电脑账号的读取权限"
+            "probe_sha256_mismatch" -> "电脑读到的探测文件内容与手机写入的不一致，请核对两端的云盘目录后重新测试"
+            "probe_too_large" -> "电脑读到的探测文件超过允许大小，请核对两端的云盘目录后重新测试"
+            else -> null
+        }
+        if (reason != null) return RemoteFailure(200, reason, requireNotNull(reportedCode), false)
+        val message = when {
+            !result.read_ok -> "电脑无法读取手机写入的探测文件，请检查电脑 OpenList 的 WebDAV 目录和读取权限"
+            !result.write_ok -> "电脑已读到手机的探测文件，但写入或读回回执失败。请检查电脑 OpenList 账号对该目录的创建、上传和读取权限"
+            !result.asr_ready -> "电脑识别服务尚未就绪"
+            else -> "电脑报告探测未通过，请查看电脑识别服务日志"
+        }
+        val code = if (reportedCode == "storage_not_ready") reportedCode else "probe_not_ready"
+        return RemoteFailure(200, message, code, false)
     }
     suspend fun start(input: RemoteStart): RemoteStarted {
         val response = request("sessions/start", remoteJson.encodeToJsonElement(input).jsonObject)

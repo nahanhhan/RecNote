@@ -10,6 +10,8 @@
 
 音频和原稿走云盘，控制接口发送任务资料。手机和电脑的 localhost 各指自身设备，实际云盘传输路由仍需部署验收。
 
+电脑端的 `OPENLIST_WEBDAV_URL` 填到与手机对应的实际文件夹。例如两端账号都从挂载列表开始浏览，且目标挂载叫 `recnote_test`，两端各自配置 `http://127.0.0.1:5244/dav/recnote_test/`。如果账号的基本路径已经指向该目录，则以该账号实际看到的 WebDAV 根为准。`RecNoteRemote` 由协议追加到这个基地址下。
+
 ## 控制接口
 
 | 接口 | 输入 | 响应及作用 |
@@ -32,6 +34,8 @@
 4. 响应字段为 `protocol_version, ok, asr_ready, model_loaded, read_ok, write_ok, receipt{path, sha256}, error`。HTTP 状态表示请求合法性，就绪按响应体布尔值判断。
 5. 手机要求协议匹配及 `ok/asr_ready/read_ok/write_ok` 通过；核对返回的回执 path 恰为本次预期路径，回读其确切字节，核对 SHA-256 与响应 `receipt.sha256` 相同；再验证回执内部的协议版本和探测文件校验值绑定本次探测。
 6. `model_loaded=false` 表示尚未加载识别模型，提示首块可能较慢；其余检查通过时不单独判失败。HTTP 成功但 `ok=false` 直接显示原因，不进入退避重试。
+
+`probe_missing` 表示电脑找不到或读不到手机写入的探测文件，先核对两端的实际文件夹和电脑账号的读取权限。若 `read_ok=true`、`write_ok=false`，检查电脑账号能否在目标目录创建文件夹、上传和读取回执。手机只展示固定的排查提示，不回显服务端原文或实际地址。
 
 回执内部字段固定为 `protocol_version, probe_path, probe_sha256, asr_ready, timestamp`。手机逐项核对版本、本次路径与探测文件摘要、识别就绪；timestamp 按 UTC `YYYY-MM-DDTHH:mm:ssZ` 校验格式。响应 `receipt.sha256` 是回执文件摘要，不是原探测文件摘要。只读挂载、回执缺失／半写、摘要不匹配均不能报告连接成功。测试清理只涉及本次探测文件和回执。
 
