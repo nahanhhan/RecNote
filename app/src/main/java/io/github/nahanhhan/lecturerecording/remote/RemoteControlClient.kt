@@ -1,6 +1,7 @@
 package io.github.nahanhhan.lecturerecording.remote
 
 import io.github.nahanhhan.lecture.core.*
+import io.github.nahanhhan.lecturerecording.logging.RemoteTrace
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -35,20 +36,29 @@ class RemoteControlClient(address: String, client: OkHttpClient = OkHttpClient.B
     .connectTimeout(15, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS).callTimeout(45, TimeUnit.SECONDS).build()) {
     private val root = io.github.nahanhhan.lecturerecording.sync.WebDavClient.normalize(address).toHttpUrl()
     private val http = client.newBuilder().followRedirects(false).followSslRedirects(false).build()
-    suspend fun health(token: String): JsonObject = request("health", bearer = token).also {
-        check(it["protocol_version"]?.jsonPrimitive?.intOrNull == 1) { "电脑端协议版本不兼容" }
-        check(it["asr_ready"]?.jsonPrimitive?.booleanOrNull == true) { "电脑识别服务尚未就绪" }
-        check(it["storage_ready"]?.jsonPrimitive?.booleanOrNull == true) {
+    suspend fun health(token: String): JsonObject = health(token, null)
+
+    internal suspend fun health(token: String, trace: RemoteTrace?): JsonObject = request("health", bearer = token).also {
+        val protocol = (it["protocol_version"] as? JsonPrimitive)?.intOrNull
+        val asrReady = (it["asr_ready"] as? JsonPrimitive)?.booleanOrNull
+        val storageReady = (it["storage_ready"] as? JsonPrimitive)?.booleanOrNull
+        trace?.healthReply(protocol, asrReady, storageReady)
+        check(protocol == 1) { "电脑端协议版本不兼容" }
+        check(asrReady == true) { "电脑识别服务尚未就绪" }
+        check(storageReady == true) {
             "电脑 OpenList 尚未就绪，请检查电脑端的 WebDAV 地址、账号和目标文件夹权限"
         }
     }
-    suspend fun probe(token: String, path: String, sha: String): RemoteProbe {
+    suspend fun probe(token: String, path: String, sha: String): RemoteProbe = probe(token, path, sha, null)
+
+    internal suspend fun probe(token: String, path: String, sha: String, trace: RemoteTrace?): RemoteProbe {
         RemoteProtocol.relativePath(path)
         require(Regex("RecNoteRemote/_probe/[a-zA-Z0-9-]+\\.bin").matches(path)) { "探测路径无效" }
         val response = request("probe", buildJsonObject { put("protocol_version", 1); put("token", token); put("path", path); put("sha256", sha) })
         val result = try { remoteJson.decodeFromJsonElement<RemoteProbe>(response) }
             catch (_: Exception) { throw RemoteFailure(-1, "电脑探测响应字段不完整") }
         check(result.protocol_version == 1) { "电脑端协议版本不兼容" }
+        trace?.probeReply(result)
         if (!result.ok || !result.asr_ready || !result.read_ok || !result.write_ok) {
             throw probeFailure(result)
         }

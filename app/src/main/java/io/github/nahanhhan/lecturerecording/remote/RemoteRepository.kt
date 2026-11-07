@@ -4,6 +4,8 @@ import androidx.room.withTransaction
 import io.github.nahanhhan.lecture.core.*
 import io.github.nahanhhan.lecturerecording.AppGraph
 import io.github.nahanhhan.lecturerecording.data.*
+import io.github.nahanhhan.lecturerecording.logging.RemoteStep
+import io.github.nahanhhan.lecturerecording.logging.RemoteTrace
 import io.github.nahanhhan.lecturerecording.sync.WebDavClient
 import io.github.nahanhhan.lecturerecording.sync.WebDavFailure
 import kotlinx.coroutines.*
@@ -121,10 +123,15 @@ class RemoteRepository(private val graph: AppGraph) {
     suspend fun diagnose(id: String): String {
         val session = guard(id)
         check(session.tokenCipher.isNotEmpty()) { "开始通知尚未成功，请先重试远程任务" }
-        val status = RemoteControlClient(connection(session).first.baseUrl).status(id, graph.settings.decryptTaskToken(session.tokenCipher))
+        val trace = RemoteTrace.task(id)
+        val status = trace.step(RemoteStep.COMPUTER_STATUS) {
+            RemoteControlClient(connection(session).first.baseUrl).status(id, graph.settings.decryptTaskToken(session.tokenCipher))
+        }
         guard(id)
         check(status["session_id"]?.jsonPrimitive?.content == id) { "电脑返回的任务标识不匹配" }
-        return when (status["state"]?.jsonPrimitive?.content) {
+        val state = (status["state"] as? JsonPrimitive)?.contentOrNull
+        trace.computerState(RemoteStep.COMPUTER_STATUS, state)
+        return when (state) {
             "waiting_source" -> "电脑正在等待音频清单"
             "receiving" -> "电脑正在接收和识别音频"
             "draining" -> "电脑正在处理最后的音频"
@@ -159,13 +166,17 @@ class RemoteRepository(private val graph: AppGraph) {
         if (!matched()) {
             graph.dao.putRemoteCancellation(value.copy(state = "paused", error = "请恢复原连接后重试取消通知")); return@withLock true
         }
+        val trace = RemoteTrace.task(id)
         try {
             val config = graph.settings.remote()
             check(matched()) { "原连接配置已改变" }
             val control = RemoteControlClient(config.baseUrl)
             // 开始响应丢失时以同一身份幂等取回 token，再取消，避免电脑留下孤立任务。
             if (value.tokenCipher.isEmpty()) {
-                val started = control.start(RemoteStart(token = config.token, session_id = id, cloud_path = root(id), title = value.title, source_type = value.sourceType))
+                val started = trace.step(RemoteStep.COMPUTER_START) {
+                    control.start(RemoteStart(token = config.token, session_id = id, cloud_path = root(id), title = value.title, source_type = value.sourceType))
+                }
+                trace.computerState(RemoteStep.COMPUTER_START, started.state)
                 check(matched()) { "原连接配置已改变" }
                 if (graph.dao.remoteCancellation(id) == null) return@withLock true
                 value = value.copy(tokenCipher = graph.settings.encryptTaskToken(started.session_token))
@@ -174,7 +185,7 @@ class RemoteRepository(private val graph: AppGraph) {
             check(matched()) { "原连接配置已改变" }
             val token = graph.settings.decryptTaskToken(value.tokenCipher)
             check(token.isNotBlank()) { "取消任务凭据无法解密" }
-            control.action("cancel", token)
+            trace.step(RemoteStep.COMPUTER_CANCEL) { control.action("cancel", token) }
             graph.dao.deleteRemoteCancellation(id)
             true
         } catch (cancelled: CancellationException) { throw cancelled }
@@ -227,96 +238,152 @@ class RemoteRepository(private val graph: AppGraph) {
     suspend fun upload(id: String): Boolean = executions.computeIfAbsent(id) { Mutex() }.withLock {
         val initial = graph.dao.remoteSession(id) ?: return@withLock true
         if (initial.complete || initial.state in setOf("failed", "paused", "cancelled", "terminal")) return@withLock true
+        val trace = RemoteTrace.task(id)
         try {
             var session = guard(id)
             val lesson = requireNotNull(graph.dao.lesson(id))
             val (remote, webDav) = connection(session)
             val control = RemoteControlClient(remote.baseUrl)
             if (session.tokenCipher.isEmpty()) {
-                val started = control.start(RemoteStart(token = remote.token, session_id = id, cloud_path = root(id), title = lesson.title.take(200), source_type = lesson.sourceType))
+                val started = trace.step(RemoteStep.COMPUTER_START) {
+                    control.start(RemoteStart(token = remote.token, session_id = id, cloud_path = root(id), title = lesson.title.take(200), source_type = lesson.sourceType))
+                }
+                trace.computerState(RemoteStep.COMPUTER_START, started.state)
                 guard(id); update(id) { it.copy(tokenCipher = graph.settings.encryptTaskToken(started.session_token)) }
             }
             session = guard(id)
             val token = graph.settings.decryptTaskToken(session.tokenCipher)
             check(token.isNotBlank()) { "任务凭据无法解密，请恢复手机密钥" }
             if (session.retryRequested) {
-                control.action("retry", token); guard(id); update(id) { it.copy(retryRequested = false) }
+                trace.step(RemoteStep.COMPUTER_RETRY) { control.action("retry", token) }
+                guard(id); update(id) { it.copy(retryRequested = false) }
             }
             if (session.stopped && !session.endSent) {
-                guard(id); control.action("end", token); guard(id); update(id) { it.copy(endSent = true) }
+                guard(id)
+                trace.step(RemoteStep.COMPUTER_END) { control.action("end", token) }
+                guard(id); update(id) { it.copy(endSent = true) }
             }
             val data = dataClient(webDav)
             val chunks = audio(id)
-            if (chunks.isNotEmpty()) {
-                guard(id); data.ensureDirectory(root(id) + "/audio") { check(graph.settings.remoteIdentity() == initial.identity && graph.settings.remoteVersion() == initial.configVersion) { "连接配置已改变" } }
-            } else { guard(id); data.ensureDirectory(root(id)) }
+            trace.step(RemoteStep.CLOUD_DIRECTORY) {
+                if (chunks.isNotEmpty()) {
+                    guard(id); data.ensureDirectory(root(id) + "/audio") { check(graph.settings.remoteIdentity() == initial.identity && graph.settings.remoteVersion() == initial.configVersion) { "连接配置已改变" } }
+                } else { guard(id); data.ensureDirectory(root(id)) }
+            }
             val sources = graph.dao.chunks(id).associateBy { it.startSample }
             chunks.drop(guard(id).uploaded).forEach { chunk ->
                 guard(id)
                 val source = requireNotNull(sources[chunk.start_sample])
                 check(RemoteProtocol.sha256(File(source.path)) == chunk.sha256) { "已封存音频校验失败" }
-                data.putRemoteAudio(root(id) + "/audio", "${RemoteProtocol.name(chunk.sequence)}.wav", File(source.path))
+                val file = File(source.path)
+                trace.step(RemoteStep.AUDIO_UPLOAD, sequence = chunk.sequence, uploadBytes = file.length()) {
+                    data.putRemoteAudio(root(id) + "/audio", "${RemoteProtocol.name(chunk.sequence)}.wav", file)
+                }
                 val manifest = remoteJson.encodeToString(RemoteManifest(id, chunk.sequence.toLong(), chunks.take(chunk.sequence)))
-                check(manifest.toByteArray().size <= RemoteProtocol.MANIFEST_LIMIT) { "清单过大" }
+                val manifestBytes = manifest.toByteArray(Charsets.UTF_8)
+                check(manifestBytes.size <= RemoteProtocol.MANIFEST_LIMIT) { "清单过大" }
                 guard(id); update(id) { it.copy(uploaded = chunk.sequence, state = "uploading", error = "", manifestJson = manifest) }
-                guard(id); data.putRemote(root(id), "manifest.json", manifest.toByteArray(Charsets.UTF_8))
+                guard(id)
+                trace.step(RemoteStep.MANIFEST_UPLOAD, sequence = chunk.sequence, uploadBytes = manifestBytes.size.toLong()) {
+                    data.putRemote(root(id), "manifest.json", manifestBytes)
+                }
             }
             // PUT 响应丢失或进程被杀时，原字节重放上次索引。
             session = guard(id)
             if (session.manifestJson.isNotBlank()) {
-                data.putRemote(root(id), "manifest.json", session.manifestJson.toByteArray(Charsets.UTF_8)); guard(id)
+                val bytes = session.manifestJson.toByteArray(Charsets.UTF_8)
+                trace.step(RemoteStep.MANIFEST_UPLOAD, uploadBytes = bytes.size.toLong()) {
+                    data.putRemote(root(id), "manifest.json", bytes)
+                }
+                guard(id)
             }
             if (session.stopped && session.uploaded == remoteJson.decodeFromString<RemoteManifest>(session.finalJson).chunks.size) {
                 val bytes = session.finalJson.toByteArray(Charsets.UTF_8)
                 guard(id)
-                val existing = data.readRemote(root(id), "final.json", RemoteProtocol.MANIFEST_LIMIT)
+                val existing = trace.step(RemoteStep.FINAL_CHECK) {
+                    data.readRemote(root(id), "final.json", RemoteProtocol.MANIFEST_LIMIT)
+                }
                 check(existing == null || existing.contentEquals(bytes)) { "云盘最终清单冲突，保留原资料" }
-                if (existing == null) { guard(id); data.putRemote(root(id), "final.json", bytes) }
+                if (existing == null) {
+                    guard(id)
+                    trace.step(RemoteStep.FINAL_UPLOAD, uploadBytes = bytes.size.toLong()) {
+                        data.putRemote(root(id), "final.json", bytes)
+                    }
+                }
                 guard(id)
-                if (!session.endSent) { control.action("end", token); guard(id); update(id) { it.copy(endSent = true) } }
+                if (!session.endSent) {
+                    trace.step(RemoteStep.COMPUTER_END) { control.action("end", token) }
+                    guard(id); update(id) { it.copy(endSent = true) }
+                }
             }
             update(id) { it.copy(state = if (it.complete) "completed" else if (it.stopped) "waiting_results" else "receiving", attempts = 0, error = "") }
             true
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (error: Exception) {
+            trace.failure(RemoteStep.UPLOAD_BATCH, error)
             val current = graph.dao.remoteSession(id) ?: return@withLock true
             if (current.state in setOf("paused", "cancelled")) return@withLock true
             val retryable = (error is RemoteFailure && error.retryable) || (error is WebDavFailure && error.retryable) ||
                 (error is java.io.IOException && error !is RemoteFailure && error !is WebDavFailure)
             val retry = retryable && current.attempts < 4
+            trace.uploadRetry(current.attempts + 1, retry)
             val safe = if (error is RemoteFailure || error is WebDavFailure || error is IllegalStateException || error is IllegalArgumentException) error.message.orEmpty() else "上传或控制通知失败，请检查连接后重试"
             update(id) { it.copy(attempts = it.attempts + 1, state = if (error is RemoteFailure && error.errorCode == "session_terminal") "terminal" else if (retry) "retrying" else "failed", error = safe) }
             !retry
         }
     }
     suspend fun testConnection() = withContext(Dispatchers.IO) {
+        val probeId = UUID.randomUUID()
+        val trace = RemoteTrace.probe(probeId)
+        trace.step(RemoteStep.CONNECTION) { testConnection(probeId, trace) }
+    }
+
+    private suspend fun testConnection(probeId: UUID, trace: RemoteTrace): Boolean {
         graph.settings.requireRemote()
         val config = graph.settings.remote(); val webDav = graph.settings.webDav()
         val identity = graph.settings.remoteIdentity(config, webDav)
         val control = RemoteControlClient(config.baseUrl)
-        control.health(config.token)
-        val data = dataClient(webDav); val directory = "RecNoteRemote/_probe"; val filename = "${UUID.randomUUID()}.bin"
+        trace.step(RemoteStep.COMPUTER_HEALTH) { control.health(config.token, trace) }
+        val data = dataClient(webDav); val directory = "RecNoteRemote/_probe"; val filename = "$probeId.bin"
         val path = "$directory/$filename"
         val bytes = UUID.randomUUID().toString().toByteArray(Charsets.UTF_8)
-        data.ensureDirectory(directory)
-        try {
-            data.putRemote(directory, filename, bytes, "application/octet-stream")
+        trace.step(RemoteStep.CLOUD_DIRECTORY) { data.ensureDirectory(directory) }
+        return try {
+            trace.step(RemoteStep.PROBE_UPLOAD, uploadBytes = bytes.size.toLong()) {
+                data.putRemote(directory, filename, bytes, "application/octet-stream")
+            }
             val probeHash = RemoteProtocol.sha256(bytes)
-            val response = control.probe(config.token, path, probeHash)
+            val response = trace.step(RemoteStep.COMPUTER_PROBE) { control.probe(config.token, path, probeHash, trace) }
             val receipt = requireNotNull(response.receipt)
-            val raw = data.readRemote(directory, "$filename.receipt.json", RemoteProtocol.CONTROL_LIMIT) ?: error("电脑探测回执尚未写回，请稍后测试")
-            check(RemoteProtocol.sha256(raw) == receipt.sha256) { "电脑探测回执摘要不匹配" }
-            val content = try { remoteJson.decodeFromString<RemoteProbeReceipt>(raw.toString(Charsets.UTF_8)) } catch (_: Exception) { error("探测回执格式无效") }
-            RemoteProtocol.receipt(content, path, probeHash)
+            val raw = trace.step(RemoteStep.RECEIPT_DOWNLOAD) {
+                data.readRemote(directory, "$filename.receipt.json", RemoteProtocol.CONTROL_LIMIT)
+            } ?: error("电脑已确认写入回执，但手机 OpenList 读取时返回 HTTP 404。请核对两端目录和手机 OpenList 的目录缓存")
+            trace.step(RemoteStep.RECEIPT_VERIFY) {
+                check(RemoteProtocol.sha256(raw) == receipt.sha256) { "电脑探测回执摘要不匹配" }
+                val content = try { remoteJson.decodeFromString<RemoteProbeReceipt>(raw.toString(Charsets.UTF_8)) }
+                    catch (_: Exception) { error("探测回执格式无效") }
+                RemoteProtocol.receipt(content, path, probeHash)
+            }
             check(graph.settings.remoteIdentity() == identity) { "测试期间配置已改变，请重新测试" }
             response.model_loaded
-        } finally { withContext(NonCancellable) { runCatching { data.deleteRemoteProbe(path) } } }
+        } finally {
+            withContext(NonCancellable) {
+                runCatching { trace.step(RemoteStep.PROBE_CLEANUP) { data.deleteRemoteProbe(path) } }
+            }
+        }
     }
     suspend fun refresh(id: String) = withContext(Dispatchers.IO) { queries.computeIfAbsent(id) { Mutex() }.withLock {
         if (graph.dao.remoteSession(id)?.complete == true) return@withLock
+        val trace = RemoteTrace.task(id)
+        trace.step(RemoteStep.RESULTS_REFRESH) { refreshResults(id, trace) }
+    } }
+
+    private suspend fun refreshResults(id: String, trace: RemoteTrace) {
         var session = guard(id)
         val data = dataClient(connection(session).second)
-        val bytes = data.readRemote(root(id) + "/.transcripts", "index.json", RemoteProtocol.MANIFEST_LIMIT) ?: return@withLock
+        val bytes = trace.step(RemoteStep.INDEX_DOWNLOAD) {
+            data.readRemote(root(id) + "/.transcripts", "index.json", RemoteProtocol.MANIFEST_LIMIT)
+        } ?: return
         val index = try { remoteJson.decodeFromString<RemoteIndex>(bytes.toString(Charsets.UTF_8)) }
             catch (_: Exception) { error("原稿索引尚未完整写入，请稍后刷新") }
         val audio = audio(id)
@@ -328,7 +395,9 @@ class RemoteRepository(private val graph: AppGraph) {
                 check(stored.transcriptSha == result.sha256) { "已完成的原稿内容发生冲突" }
                 continue
             }
-            val textBytes = data.readRemote(result.path.substringBeforeLast('/'), result.path.substringAfterLast('/'), RemoteProtocol.TRANSCRIPT_LIMIT) ?: continue
+            val textBytes = trace.step(RemoteStep.TRANSCRIPT_DOWNLOAD, sequence = result.sequence) {
+                data.readRemote(result.path.substringBeforeLast('/'), result.path.substringAfterLast('/'), RemoteProtocol.TRANSCRIPT_LIMIT)
+            } ?: continue
             check(RemoteProtocol.sha256(textBytes) == result.sha256) { "原稿尚未完整写入，请稍后刷新" }
             val text = try { Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(textBytes)).toString() }
                 catch (_: Exception) { error("原稿不是有效的 UTF-8 文字") }
@@ -349,7 +418,9 @@ class RemoteRepository(private val graph: AppGraph) {
         }
         val failed = index.chunks.firstOrNull { it.status == "failed" }
         val detail = failed?.error as? JsonObject
-        val failure = when ((detail?.get("code") as? JsonPrimitive)?.contentOrNull) {
+        val code = (detail?.get("code") as? JsonPrimitive)?.contentOrNull
+        if (failed != null) trace.recognitionFailure(failed.sequence, code)
+        val failure = when (code) {
             "audio_too_large" -> "音频块超过电脑体积上限，请检查分块或电脑限制"
             "audio_format_invalid", "audio_decode_failed" -> "电脑无法读取音频格式，请检查原音频"
             "audio_missing", "audio_sha256_mismatch" -> "电脑尚未取得完整音频，请检查云盘上传"
@@ -359,16 +430,20 @@ class RemoteRepository(private val graph: AppGraph) {
         }
         update(id) { it.copy(indexRevision = index.revision, error = failure) }
         session = guard(id)
-        if (!session.stopped || session.finalJson.isEmpty()) return@withLock
-        val completeBytes = data.readRemote(root(id) + "/.transcripts", "complete.json", RemoteProtocol.MANIFEST_LIMIT) ?: return@withLock
+        if (!session.stopped || session.finalJson.isEmpty()) return
+        val completeBytes = trace.step(RemoteStep.COMPLETION_DOWNLOAD) {
+            data.readRemote(root(id) + "/.transcripts", "complete.json", RemoteProtocol.MANIFEST_LIMIT)
+        } ?: return
         val complete = try { remoteJson.decodeFromString<RemoteComplete>(completeBytes.toString(Charsets.UTF_8)) }
             catch (_: Exception) { error("完成标记尚未完整写入，请稍后刷新") }
         val finalBytes = session.finalJson.toByteArray(Charsets.UTF_8)
         val final = remoteJson.decodeFromString<RemoteManifest>(session.finalJson)
         val received = graph.dao.remoteChunks(id).filter { it.transcriptSha.isNotEmpty() }.associate { it.sequence to it.transcriptSha }
-        RemoteProtocol.complete(complete, finalBytes, final, received)
-        val indexed = index.chunks.associateBy { it.sequence }
-        check(complete.chunks.all { indexed[it.sequence]?.let { result -> result.status == "completed" && result.completion() == it } == true }) { "完成标记与原稿索引不一致" }
+        trace.step(RemoteStep.COMPLETION_VERIFY) {
+            RemoteProtocol.complete(complete, finalBytes, final, received)
+            val indexed = index.chunks.associateBy { it.sequence }
+            check(complete.chunks.all { indexed[it.sequence]?.let { result -> result.status == "completed" && result.completion() == it } == true }) { "完成标记与原稿索引不一致" }
+        }
         guard(id)
         graph.database.withTransaction {
             check(graph.dao.lesson(id) != null && graph.dao.remoteSession(id) != null) { "录音已删除" }
@@ -379,5 +454,5 @@ class RemoteRepository(private val graph: AppGraph) {
             update(id) { it.copy(complete = true, state = "completed", error = "") }
             graph.dao.setStatus(id, "completed", if (final.chunks.isEmpty()) "本次录音没有音频" else "")
         }
-    } }
+    }
 }

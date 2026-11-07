@@ -37,6 +37,8 @@
 
 `probe_missing` 表示电脑找不到或读不到手机写入的探测文件，先核对两端的实际文件夹和电脑账号的读取权限。若 `read_ok=true`、`write_ok=false`，检查电脑账号能否在目标目录创建文件夹、上传和读取回执。手机只展示固定的排查提示，不回显服务端原文或实际地址。
 
+在 RecNote 设置中将日志档位设为 Info 或 Debug，再复现并导出日志。搜索 `RemoteTrace`，同一次连接测试共享 `probe-` 编号，编号末八位可与电脑 OpenList 的探测文件名对照。远程录音用 `task-` 编号串联识别状态、分块上传、清单与原稿回收。日志包含步骤、结果、耗时、可用的 HTTP 状态、协议错误分类、分块序号和字节数。Debug 还记录每步开始时间。电脑确认写入后，手机取回执若收到 404，会记录在 `RECEIPT_DOWNLOAD`。
+
 回执内部字段固定为 `protocol_version, probe_path, probe_sha256, asr_ready, timestamp`。手机逐项核对版本、本次路径与探测文件摘要、识别就绪；timestamp 按 UTC `YYYY-MM-DDTHH:mm:ssZ` 校验格式。响应 `receipt.sha256` 是回执文件摘要，不是原探测文件摘要。只读挂载、回执缺失／半写、摘要不匹配均不能报告连接成功。测试清理只涉及本次探测文件和回执。
 
 ## 云盘文件

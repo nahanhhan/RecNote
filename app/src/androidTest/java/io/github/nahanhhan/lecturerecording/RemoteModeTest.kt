@@ -12,7 +12,9 @@ import androidx.work.WorkManager
 import io.github.nahanhhan.lecture.core.*
 import io.github.nahanhhan.lecturerecording.data.*
 import io.github.nahanhhan.lecturerecording.importing.AudioImporter
+import io.github.nahanhhan.lecturerecording.logging.AppLog
 import io.github.nahanhhan.lecturerecording.recording.WavFile
+import io.github.nahanhhan.lecturerecording.remote.RemoteFailure
 import io.github.nahanhhan.lecturerecording.remote.RemoteRepository
 import io.github.nahanhhan.lecturerecording.remote.RemoteUploadWorker
 import kotlinx.coroutines.runBlocking
@@ -70,6 +72,9 @@ class RemoteModeTest {
                         check(Regex("RecNoteRemote/_probe/[a-zA-Z0-9-]+\\.bin").matches(relative))
                         val source = requireNotNull(files["/dav/$relative"])
                         check(RemoteProtocol.sha256(source) == probe["sha256"]!!.jsonPrimitive.content)
+                        if (receiptFault == "computer_missing") return json(
+                            """{"protocol_version":1,"ok":false,"asr_ready":true,"model_loaded":false,"read_ok":false,"write_ok":false,"error":{"code":"probe_missing","message":"synthetic-private-server-detail","retryable":true}}"""
+                        )
                         val raw = buildJsonObject {
                             put("protocol_version", 1); put("probe_path", relative)
                             put("probe_sha256", if (receiptFault == "unbound") "0".repeat(64) else RemoteProtocol.sha256(source))
@@ -237,6 +242,51 @@ class RemoteModeTest {
             try { graph.remote.testConnection(); fail("Invalid receipt accepted: $fault") }
             catch (_: IllegalStateException) { }
         }
+    }
+    @Test fun remoteDiagnosticsCorrelateProbeAndTaskStagesWithoutPrivateDetails(): Unit = runBlocking {
+        val level = AppLog.level()
+        AppLog.setLevel(LogLevel.DEBUG)
+        try {
+            receiptFault = "computer_missing"
+            try {
+                graph.remote.testConnection()
+                fail("Computer probe failure accepted")
+            } catch (error: RemoteFailure) { assertEquals("probe_missing", error.errorCode) }
+
+            receiptFault = "missing"
+            try {
+                graph.remote.testConnection()
+                fail("Missing receipt accepted")
+            } catch (error: IllegalStateException) {
+                assertTrue(error.message.orEmpty().contains("手机 OpenList 读取时返回 HTTP 404"))
+            }
+
+            val id = lesson(); chunk(id); graph.remote.stop(id); graph.remote.upload(id)
+            graph.remote.diagnose(id)
+            publish(id, "synthetic-private-transcript")
+            graph.remote.refresh(id)
+
+            AppLog.flush()
+            val lines = File(app.filesDir, "log/main.log").readLines().filter { it.contains(" RemoteTrace ") }
+            val missing = lines.last { it.contains("step=RECEIPT_DOWNLOAD result=missing http=404") }
+            val probeRef = Regex("ref=probe-[0-9a-f]{8}").find(missing)!!.value
+            val probeLines = lines.filter { it.contains(probeRef) }
+            assertTrue(probeLines.any { it.contains("step=PROBE_UPLOAD result=ok") })
+            assertTrue(probeLines.any { it.contains("read_ok=true write_ok=true") })
+            assertTrue(probeLines.any { it.contains("step=PROBE_CLEANUP result=ok") })
+            assertTrue(lines.any { it.contains("read_ok=false write_ok=false code=probe_missing") })
+
+            val taskRef = "ref=task-${RemoteProtocol.sha256(id.toByteArray()).take(12)}"
+            val taskLines = lines.filter { it.contains(taskRef) }
+            assertTrue(taskLines.any { it.contains("step=AUDIO_UPLOAD result=ok sequence=1 bytes=") })
+            assertTrue(taskLines.any { it.contains("step=COMPUTER_STATUS result=reported state=receiving") })
+            assertTrue(taskLines.any { it.contains("step=TRANSCRIPT_DOWNLOAD result=ok sequence=1") })
+            val exported = lines.joinToString("\n")
+            for (privateValue in listOf(id, "127.0.0.1", "/dav/", "RecNoteRemote/", "synthetic-connection",
+                "synthetic-user", "synthetic-password", "synthetic-private-server-detail", "synthetic-private-transcript")) {
+                assertFalse("Private data leaked", exported.contains(privateValue))
+            }
+        } finally { AppLog.setLevel(level) }
     }
     @Test fun connectionScreenShowsColdModelHintAfterVerifiedRoundTrip() {
         ActivityScenario.launch(MainActivity::class.java).use {
